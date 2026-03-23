@@ -32,7 +32,8 @@ export async function startBot(): Promise<void> {
   };
 
   client.once("clientReady", async (c) => {
-    console.log(`[bot] Logged in as ${c.user.tag}`);
+    console.log(`[bot] Logged in as ${c.user.tag} (Client ID: ${c.user.id})`);
+    console.log(`[bot] Invite URL: https://discord.com/api/oauth2/authorize?client_id=${c.user.id}&permissions=2048&scope=bot%20applications.commands`);
 
     const settings = getSettings();
 
