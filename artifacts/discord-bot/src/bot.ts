@@ -31,7 +31,7 @@ export async function startBot(): Promise<void> {
     connected: false,
   };
 
-  client.once("ready", async (c) => {
+  client.once("clientReady", async (c) => {
     console.log(`[bot] Logged in as ${c.user.tag}`);
 
     const settings = getSettings();

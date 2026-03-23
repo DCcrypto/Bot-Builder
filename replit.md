@@ -21,7 +21,8 @@ pnpm workspace monorepo using TypeScript. Each package manages its own dependenc
 ```text
 artifacts-monorepo/
 ├── artifacts/              # Deployable applications
-│   └── api-server/         # Express API server
+│   ├── api-server/         # Express API server
+│   └── discord-bot/        # MANE NFT Discord bot (Cronos blockchain listener)
 ├── lib/                    # Shared libraries
 │   ├── api-spec/           # OpenAPI spec + Orval codegen config
 │   ├── api-client-react/   # Generated React Query hooks
@@ -90,6 +91,29 @@ Generated Zod schemas from the OpenAPI spec (e.g. `HealthCheckResponse`). Used b
 ### `lib/api-client-react` (`@workspace/api-client-react`)
 
 Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHealthCheck`, `healthCheck`).
+
+### `artifacts/discord-bot` (`@workspace/discord-bot`)
+
+Discord bot for the MANE NFT marketplace on Cronos. Monitors the marketplace smart contract for listing and sale events, then posts rich embeds to configured Discord channels.
+
+- Entry: `src/index.ts` → `src/bot.ts` — starts Discord client, loads settings, registers slash commands
+- `src/listener.ts` — polls Cronos RPC every 30s for marketplace contract events, decodes them, posts to Discord
+- `src/commands.ts` — `/settings` slash command with subcommands for channel and collection config
+- `src/settings.ts` — persists settings to `data/settings.json` (channels, tracked collections)
+- `src/metadata.ts` — fetches NFT metadata (name, image) via `tokenURI` + IPFS resolution
+- `src/embeds.ts` — builds Discord rich embeds (purple for listings, green for sales)
+- `src/abi/marketplace.json` — common NFT marketplace event ABI (ItemListed, ItemBought, etc.)
+- Run: `pnpm --filter @workspace/discord-bot run start` (via the "Discord Bot" workflow)
+
+**Required secrets:** `DISCORD_BOT_TOKEN`, `MARKETPLACE_CONTRACT_ADDRESS` (env var)
+
+**Slash commands (admin only):**
+- `/settings status` — show current configuration
+- `/settings channel listings #channel` — set the listings announcement channel
+- `/settings channel sales #channel` — set the sales announcement channel
+- `/settings collection add 0x...` — add an NFT collection to track
+- `/settings collection remove 0x...` — remove a tracked collection
+- `/settings collection list` — list all tracked collections
 
 ### `scripts` (`@workspace/scripts`)
 
