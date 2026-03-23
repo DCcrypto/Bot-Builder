@@ -66,12 +66,8 @@ export function buildListingEmbed(input: ListingEmbedInput): EmbedBuilder {
         name: "Seller",
         value: `\`${shortenAddr(seller)}\``,
         inline: true,
-      },
-      {
-        name: "View Listing",
-        value: `[Open on MANE NFT](${listingUrl})`,
-        inline: false,
       }
+      // { name: "View Listing", value: `[Open on MANE NFT](${listingUrl})`, inline: false },
     )
     .setTimestamp();
 
@@ -135,12 +131,8 @@ export function buildSaleEmbed(input: SaleEmbedInput): EmbedBuilder {
         name: "Seller",
         value: `\`${shortenAddr(seller)}\``,
         inline: true,
-      },
-      {
-        name: "View Item",
-        value: `[Open on MANE NFT](${listingUrl})`,
-        inline: false,
       }
+      // { name: "View Item", value: `[Open on MANE NFT](${listingUrl})`, inline: false },
     )
     .setFooter({ text: `Tx: ${shortenAddr(txHash)} · Cronos` })
     .setTimestamp();
