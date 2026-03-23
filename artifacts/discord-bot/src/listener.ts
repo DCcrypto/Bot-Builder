@@ -125,9 +125,7 @@ export async function startListener(state: ListenerState): Promise<void> {
           console.log(`[listener] On-chain Sale: seller=${seller} tx=${txHash}`);
 
           const listing = await lookupSoldListing(nftContract, seller);
-          const listingUrl = listing
-            ? `${config.site.baseUrl}/listings/${listing.id}`
-            : `${config.site.baseUrl}`;
+          const listingUrl = `${config.site.baseUrl}/marketplace`;
 
           const embed = buildSaleEmbed({
             nftName:         listing?.nftName ?? null,
@@ -180,7 +178,7 @@ export async function startListener(state: ListenerState): Promise<void> {
           continue;
         }
 
-        const listingUrl = `${config.site.baseUrl}/listings/${listing.id}`;
+        const listingUrl = `${config.site.baseUrl}/marketplace`;
         const embed = buildListingEmbed({
           nftName:        listing.nftName,
           nftImage:       listing.nftImage,
