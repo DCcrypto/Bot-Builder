@@ -91,10 +91,15 @@ export async function startListener(state: ListenerState): Promise<void> {
       for (const listing of listings) {
         if (announcedListingIds.has(listing.id)) continue;
 
-        // Mark non-active listings and untracked collections as seen without posting
-        if (listing.status !== "active" || !isTrackedCollection(state, listing.nftContractAddress)) {
+        // Permanently discard sold listings and untracked collections
+        if (listing.status === "sold" || !isTrackedCollection(state, listing.nftContractAddress)) {
           announcedListingIds.add(listing.id);
           markSeen([listing.id]);
+          continue;
+        }
+
+        // Non-active (e.g. "pending" awaiting chain confirmation) — retry next poll, don't mark seen yet
+        if (listing.status !== "active") {
           continue;
         }
 
