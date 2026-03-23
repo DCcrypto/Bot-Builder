@@ -24,3 +24,11 @@ expertMode = true
 [postMerge]
 path = "scripts/post-merge.sh"
 timeoutMs = 20000
+
+[userenv]
+
+[userenv.shared]
+MARKETPLACE_CONTRACT_ADDRESS = "0x03F70dc894ae3b7d8d188BB5446633B5fda1B80F"
+CRONOS_RPC_URL = "https://evm.cronos.org"
+SITE_BASE_URL = "https://manenft.com"
+POLL_INTERVAL_MS = "30000"
