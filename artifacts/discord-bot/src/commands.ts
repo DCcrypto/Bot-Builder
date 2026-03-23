@@ -12,7 +12,6 @@ import { ethers } from "ethers";
 import {
   getSettings,
   setListingsChannel,
-  setSalesChannel,
   addTrackedCollection,
   removeTrackedCollection,
 } from "./settings.js";
@@ -39,18 +38,6 @@ export const settingsCommand = new SlashCommandBuilder()
             opt
               .setName("channel")
               .setDescription("The text channel to post new listings in")
-              .addChannelTypes(ChannelType.GuildText)
-              .setRequired(true)
-          )
-      )
-      .addSubcommand((sub) =>
-        sub
-          .setName("sales")
-          .setDescription("Set the channel for NFT sale announcements")
-          .addChannelOption((opt) =>
-            opt
-              .setName("channel")
-              .setDescription("The text channel to post sales in")
               .addChannelTypes(ChannelType.GuildText)
               .setRequired(true)
           )
@@ -121,8 +108,6 @@ export async function handleInteraction(
       await handleStatus(interaction, state);
     } else if (subgroup === "channel" && sub === "listings") {
       await handleSetListingsChannel(interaction, state);
-    } else if (subgroup === "channel" && sub === "sales") {
-      await handleSetSalesChannel(interaction, state);
     } else if (subgroup === "collection" && sub === "add") {
       await handleAddCollection(interaction, state);
     } else if (subgroup === "collection" && sub === "remove") {
@@ -145,7 +130,6 @@ async function handleStatus(
   const s = getSettings();
 
   const listingsCh = s.channelListingsId ? `<#${s.channelListingsId}>` : "Not set";
-  const salesCh = s.channelSalesId ? `<#${s.channelSalesId}>` : "Not set";
   const collections =
     s.trackedCollections.length > 0
       ? s.trackedCollections.map((a) => `\`${a}\``).join("\n")
@@ -155,19 +139,8 @@ async function handleStatus(
     .setColor(0x9b59b6)
     .setTitle("⚙️ MANE NFT Bot — Current Settings")
     .addFields(
-      { name: "📋 Listings Channel", value: listingsCh, inline: true },
-      { name: "💰 Sales Channel", value: salesCh, inline: true },
-      { name: "🎨 Tracked Collections", value: collections, inline: false },
-      {
-        name: "🔗 Marketplace Contract",
-        value: `\`${process.env["MARKETPLACE_CONTRACT_ADDRESS"] ?? "Not set"}\``,
-        inline: false,
-      },
-      {
-        name: "📡 Status",
-        value: state.connected ? "✅ Connected to Cronos" : "❌ Not connected",
-        inline: false,
-      }
+      { name: "📋 Listings Channel", value: listingsCh, inline: false },
+      { name: "🎨 Tracked Collections", value: collections, inline: false }
     )
     .setTimestamp();
 
@@ -194,28 +167,6 @@ async function handleSetListingsChannel(
     `✅ Listings channel set to <#${channel.id}>. New NFT listings will be announced there.`
   );
   console.log(`[commands] Listings channel updated to ${channel.id}`);
-}
-
-async function handleSetSalesChannel(
-  interaction: ChatInputCommandInteraction,
-  state: ListenerState
-): Promise<void> {
-  const channel = interaction.options.getChannel("channel", true);
-  const settings = setSalesChannel(channel.id);
-
-  try {
-    const fetched = await interaction.client.channels.fetch(channel.id);
-    if (fetched && fetched.isTextBased()) {
-      state.salesChannel = fetched as import("discord.js").TextChannel;
-    }
-  } catch {
-    // channel fetch failed
-  }
-
-  await interaction.editReply(
-    `✅ Sales channel set to <#${channel.id}>. NFT sales will be announced there.`
-  );
-  console.log(`[commands] Sales channel updated to ${channel.id}`);
 }
 
 async function handleAddCollection(

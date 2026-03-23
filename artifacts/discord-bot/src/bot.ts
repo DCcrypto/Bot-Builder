@@ -26,9 +26,7 @@ export async function startBot(): Promise<void> {
 
   const state: ListenerState = {
     listingsChannel: null,
-    salesChannel: null,
     trackedCollections: new Set(),
-    connected: false,
   };
 
   client.once("clientReady", async (c) => {
@@ -44,20 +42,6 @@ export async function startBot(): Promise<void> {
       }
     } else {
       console.warn("[bot] No listings channel set. Use /settings channel listings to configure.");
-    }
-
-    if (settings.channelSalesId) {
-      if (settings.channelSalesId === settings.channelListingsId) {
-        state.salesChannel = state.listingsChannel;
-        console.log("[bot] Sales channel: same as listings");
-      } else {
-        state.salesChannel = await fetchTextChannel(client, settings.channelSalesId);
-        if (state.salesChannel) {
-          console.log(`[bot] Sales channel: #${state.salesChannel.name}`);
-        }
-      }
-    } else {
-      console.warn("[bot] No sales channel set. Use /settings channel sales to configure.");
     }
 
     for (const addr of settings.trackedCollections) {
