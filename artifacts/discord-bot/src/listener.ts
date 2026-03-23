@@ -56,19 +56,21 @@ async function fetchListings(): Promise<ApiListing[]> {
   return (await res.json()) as ApiListing[];
 }
 
-async function lookupSoldListing(
+async function lookupListingBySellerAndContract(
   nftContract: string,
   seller: string
 ): Promise<ApiListing | null> {
   try {
     const listings = await fetchListings();
-    const match = listings.find(
+    // Find a listing matching seller + nftContract, preferring sold status
+    // but accepting active too since the API may not have updated yet
+    const matches = listings.filter(
       (l) =>
         l.nftContractAddress.toLowerCase() === nftContract.toLowerCase() &&
-        l.sellerAddress.toLowerCase() === seller.toLowerCase() &&
-        l.status === "sold"
+        l.sellerAddress.toLowerCase() === seller.toLowerCase()
     );
-    return match ?? null;
+    const sold = matches.find((l) => l.status === "sold");
+    return sold ?? matches[0] ?? null;
   } catch {
     return null;
   }
@@ -92,6 +94,8 @@ export async function startListener(state: ListenerState): Promise<void> {
     console.log(`[listener] On-chain poll starting from block: ${lastBlock}`);
   }
 
+  const seenSaleTxHashes = new Set<string>();
+
   async function pollSalesOnChain(): Promise<void> {
     if (!provider) return;
     try {
@@ -108,31 +112,40 @@ export async function startListener(state: ListenerState): Promise<void> {
       });
 
       for (const log of logs) {
+        // Separate parse errors (expected) from post errors (bugs)
+        let parsed;
         try {
-          const parsed = iface.parseLog({ topics: [...log.topics], data: log.data });
-          if (!parsed || parsed.name !== "Sold") continue;
+          parsed = iface.parseLog({ topics: [...log.topics], data: log.data });
+        } catch {
+          continue; // log from a different event, skip
+        }
+        if (!parsed || parsed.name !== "Sold") continue;
 
-          const buyer       = parsed.args["buyer"] as string;
-          const seller      = parsed.args["seller"] as string;
-          const nftContract = parsed.args["nftContract"] as string;
-          const croAmount   = parsed.args["croAmount"] as bigint;
-          const txHash      = log.transactionHash;
+        const txHash = log.transactionHash;
+        if (seenSaleTxHashes.has(txHash)) continue;
 
-          if (!isTrackedCollection(state, nftContract)) {
-            console.log(`[listener] Sale skipped — not tracked: ${nftContract}`);
-            continue;
-          }
+        const buyer       = parsed.args["buyer"] as string;
+        const seller      = parsed.args["seller"] as string;
+        const nftContract = parsed.args["nftContract"] as string;
+        const croAmount   = parsed.args["croAmount"] as bigint;
 
-          console.log(`[listener] On-chain Sale: seller=${seller} tx=${txHash}`);
+        if (!isTrackedCollection(state, nftContract)) {
+          console.log(`[listener] Sale skipped — not tracked: ${nftContract}`);
+          seenSaleTxHashes.add(txHash);
+          continue;
+        }
 
-          const listing = await lookupSoldListing(nftContract, seller);
+        console.log(`[listener] On-chain Sale: seller=${seller} tx=${txHash}`);
+
+        try {
+          const listing = await lookupListingBySellerAndContract(nftContract, seller);
           const listingUrl = `${config.site.baseUrl}/marketplace`;
 
           const embed = buildSaleEmbed({
-            nftName:         listing?.nftName ?? null,
-            nftImage:        listing?.nftImage ?? null,
-            collectionName:  listing?.nftContractName ?? null,
-            tokenId:         listing?.tokenId ?? null,
+            nftName:            listing?.nftName ?? null,
+            nftImage:           listing?.nftImage ?? null,
+            collectionName:     listing?.nftContractName ?? null,
+            tokenId:            listing?.tokenId ?? null,
             buyer,
             seller,
             croAmount,
@@ -144,13 +157,15 @@ export async function startListener(state: ListenerState): Promise<void> {
           const channel = state.salesChannel ?? state.listingsChannel;
           if (channel) {
             await channel.send({ embeds: [embed] });
-            console.log(`[listener] Posted sale embed → ${listingUrl}`);
+            console.log(`[listener] Posted sale: ${listing?.nftName ?? `tx ${txHash.slice(0, 10)}`}`);
           } else {
-            console.warn("[listener] No sales channel set — use /settings channel sales");
+            console.warn("[listener] No sales channel configured — use /settings channel sales");
           }
-        } catch (parseErr) {
-          // Log not from this contract's known events — skip
+        } catch (postErr) {
+          console.error(`[listener] Failed to post sale embed for tx ${txHash}:`, postErr);
         }
+
+        seenSaleTxHashes.add(txHash);
       }
 
       lastBlock = toBlock;
@@ -180,15 +195,13 @@ export async function startListener(state: ListenerState): Promise<void> {
         return;
       }
 
-      const toMark: string[] = [];
-
       for (const listing of listings) {
         if (announcedListingIds.has(listing.id)) continue;
-        if (listing.status !== "active") continue;
 
-        if (!isTrackedCollection(state, listing.nftContractAddress)) {
+        // Mark non-active listings and untracked collections as seen without posting
+        if (listing.status !== "active" || !isTrackedCollection(state, listing.nftContractAddress)) {
           announcedListingIds.add(listing.id);
-          toMark.push(listing.id);
+          markSeen([listing.id]);
           continue;
         }
 
@@ -206,17 +219,22 @@ export async function startListener(state: ListenerState): Promise<void> {
 
         const channel = state.listingsChannel ?? state.salesChannel;
         if (channel) {
-          await channel.send({ embeds: [embed] });
-          console.log(`[listener] Posted listing: ${listing.nftName ?? listing.id}`);
+          try {
+            await channel.send({ embeds: [embed] });
+            console.log(`[listener] Posted listing: ${listing.nftName ?? listing.id}`);
+          } catch (sendErr) {
+            console.error(`[listener] Failed to post listing embed for ${listing.id}:`, sendErr);
+            // Don't mark as seen — retry next poll
+            continue;
+          }
         } else {
           console.warn("[listener] No listings channel set — use /settings channel listings");
         }
 
+        // Persist immediately so a crash/restart can't re-announce
         announcedListingIds.add(listing.id);
-        toMark.push(listing.id);
+        markSeen([listing.id]);
       }
-
-      if (toMark.length > 0) markSeen(toMark);
     } catch (err) {
       console.error("[listener] API listings poll error:", err);
     }
