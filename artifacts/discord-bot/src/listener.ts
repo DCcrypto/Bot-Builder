@@ -52,11 +52,20 @@ async function fetchListings(): Promise<ApiListing[]> {
   return (await res.json()) as ApiListing[];
 }
 
+// How long to suppress re-announcements of the same NFT (contract + tokenId)
+const RELIST_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
+
 export async function startListener(state: ListenerState): Promise<void> {
   console.log("[listener] Starting MANE NFT listener (listings only)");
 
   const announcedListingIds: Set<string> = loadSeenIds();
+  // Tracks the last time each NFT (by contract:tokenId) was announced
+  const recentNfts = new Map<string, number>();
   let seeded = false;
+
+  function nftKey(listing: ApiListing): string {
+    return `${listing.nftContractAddress.toLowerCase()}:${listing.tokenId}`;
+  }
 
   async function pollNewListings(): Promise<void> {
     try {
@@ -70,6 +79,11 @@ export async function startListener(state: ListenerState): Promise<void> {
           markSeen(allIds);
           console.log(`[listener] Seeded ${allIds.length} existing listings — will only announce new ones going forward`);
         }
+        // Populate cooldown map with all currently listed NFTs so relists
+        // right after startup don't sneak through under a new UUID
+        for (const l of listings) {
+          recentNfts.set(nftKey(l), Date.now());
+        }
         seeded = true;
         return;
       }
@@ -79,6 +93,16 @@ export async function startListener(state: ListenerState): Promise<void> {
 
         // Mark non-active listings and untracked collections as seen without posting
         if (listing.status !== "active" || !isTrackedCollection(state, listing.nftContractAddress)) {
+          announcedListingIds.add(listing.id);
+          markSeen([listing.id]);
+          continue;
+        }
+
+        // Suppress rapid relisting of the same physical NFT
+        const key = nftKey(listing);
+        const lastAt = recentNfts.get(key);
+        if (lastAt !== undefined && Date.now() - lastAt < RELIST_COOLDOWN_MS) {
+          console.log(`[listener] Skipped relist within cooldown: ${listing.nftName ?? listing.id}`);
           announcedListingIds.add(listing.id);
           markSeen([listing.id]);
           continue;
@@ -115,6 +139,7 @@ export async function startListener(state: ListenerState): Promise<void> {
         // Persist immediately so a crash/restart can't re-announce
         announcedListingIds.add(listing.id);
         markSeen([listing.id]);
+        recentNfts.set(key, Date.now());
       }
     } catch (err) {
       console.error("[listener] API listings poll error:", err);
