@@ -94,23 +94,29 @@ Generated React Query hooks and fetch client from the OpenAPI spec (e.g. `useHea
 
 ### `artifacts/discord-bot` (`@workspace/discord-bot`)
 
-Discord bot for the MANE NFT marketplace on Cronos. Monitors the marketplace smart contract for listing and sale events, then posts rich embeds to configured Discord channels.
+Discord bot for the MANE NFT marketplace (manenft.com) on the Cronos blockchain. Polls the MANE NFT REST API for new listings and posts rich embeds to a configured Discord channel.
 
-- Entry: `src/index.ts` → `src/bot.ts` — starts Discord client, loads settings, registers slash commands
-- `src/listener.ts` — polls Cronos RPC every 30s for marketplace contract events, decodes them, posts to Discord
-- `src/commands.ts` — `/settings` slash command with subcommands for channel and collection config
-- `src/settings.ts` — persists settings to `data/settings.json` (channels, tracked collections)
-- `src/metadata.ts` — fetches NFT metadata (name, image) via `tokenURI` + IPFS resolution
-- `src/embeds.ts` — builds Discord rich embeds (purple for listings, green for sales)
-- `src/abi/marketplace.json` — common NFT marketplace event ABI (ItemListed, ItemBought, etc.)
-- Run: `pnpm --filter @workspace/discord-bot run start` (via the "Discord Bot" workflow)
+**Architecture decisions (intentional):**
+- The marketplace contract (`0x03F70dc894ae3b7d8d188BB5446633B5fda1B80F`) emits only a `Sold` event — there is no on-chain `Listed` event. New listings are therefore detected by polling `https://manenft.com/api/listings`, which returns full metadata (name, image, price). The ABI and `buildSaleEmbed` are preserved for future re-enablement.
+- Sale notifications are **temporarily disabled** at the user's request. The on-chain polling code (`pollSalesOnChain`, `ethers` provider, `lookupListingBySellerAndContract`) has been removed from `listener.ts` but `buildSaleEmbed` and `src/abi/marketplace.json` are kept intact for restoration.
+- The "View Listing" link field in embeds is **temporarily commented out** at the user's request (one-line uncomment to restore).
 
-**Required secrets:** `DISCORD_BOT_TOKEN`, `MARKETPLACE_CONTRACT_ADDRESS` (env var)
+**Key files:**
+- `src/index.ts` → `src/bot.ts` — Discord client startup, channel resolution, slash command registration
+- `src/listener.ts` — polls `manenft.com/api/listings` every 30 s; seeds existing IDs on startup to avoid re-announcing; persists seen IDs to `data/seen-listings.json` immediately after each post
+- `src/commands.ts` — `/settings` slash command (listings channel + collection management)
+- `src/settings.ts` — persists `data/settings.json` (channelListingsId, channelSalesId, trackedCollections)
+- `src/seenListings.ts` — disk persistence for announced listing IDs (30-day TTL)
+- `src/embeds.ts` — `buildListingEmbed` (active) and `buildSaleEmbed` (saved, not called)
+- `src/abi/marketplace.json` — verified ABI: single `Sold(address buyer, address seller, address nftContract, uint256 listingId, uint256 tokenAmount, uint256 croAmount, uint256 timestamp)` event
+- `data/settings.json` — persisted channel and collection settings
+- `data/seen-listings.json` — persisted announced listing IDs
 
-**Slash commands (admin only):**
+**Required secrets:** `DISCORD_BOT_TOKEN`
+
+**Slash commands (admin/ManageGuild only):**
 - `/settings status` — show current configuration
 - `/settings channel listings #channel` — set the listings announcement channel
-- `/settings channel sales #channel` — set the sales announcement channel
 - `/settings collection add 0x...` — add an NFT collection to track
 - `/settings collection remove 0x...` — remove a tracked collection
 - `/settings collection list` — list all tracked collections
