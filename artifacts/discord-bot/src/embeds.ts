@@ -17,6 +17,15 @@ function formatPrice(price: string | bigint, symbol: string): string {
   return `${val.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${symbol}`;
 }
 
+function buildDescription(
+  collectionName: string | null,
+  tokenId: string | null
+): string | null {
+  if (collectionName && tokenId) return `**${collectionName}** · Token #${tokenId}`;
+  if (collectionName) return collectionName;
+  return null;
+}
+
 export interface ListingEmbedInput {
   nftName: string | null;
   nftImage: string | null;
@@ -41,15 +50,11 @@ export function buildListingEmbed(input: ListingEmbedInput): EmbedBuilder {
   } = input;
 
   const title = nftName ? `🏷️ New Listing — ${nftName}` : "🏷️ New Listing";
-  const description =
-    collectionName && tokenId
-      ? `**${collectionName}** · Token #${tokenId}`
-      : collectionName ?? "";
+  const description = buildDescription(collectionName, tokenId);
 
   const embed = new EmbedBuilder()
     .setColor(LISTING_COLOR)
     .setTitle(title)
-    .setDescription(description)
     .setURL(listingUrl)
     .addFields(
       {
@@ -70,6 +75,7 @@ export function buildListingEmbed(input: ListingEmbedInput): EmbedBuilder {
     )
     .setTimestamp();
 
+  if (description) embed.setDescription(description);
   if (nftImage) embed.setImage(nftImage);
 
   return embed;
@@ -103,19 +109,16 @@ export function buildSaleEmbed(input: SaleEmbedInput): EmbedBuilder {
   } = input;
 
   const title = nftName ? `🎉 NFT Sold — ${nftName}` : "🎉 NFT Sold";
-  const description =
-    collectionName && tokenId
-      ? `**${collectionName}** · Token #${tokenId}`
-      : collectionName ?? "";
+  const description = buildDescription(collectionName, tokenId);
 
-  const priceLabel = paymentTokenSymbol === "CRO" || paymentTokenSymbol === ""
-    ? "Sale Price"
-    : `Sale Price (CRO value)`;
+  const priceLabel =
+    paymentTokenSymbol === "CRO" || paymentTokenSymbol === ""
+      ? "Sale Price"
+      : `Sale Price (CRO value)`;
 
   const embed = new EmbedBuilder()
     .setColor(SALE_COLOR)
     .setTitle(title)
-    .setDescription(description)
     .setURL(listingUrl)
     .addFields(
       {
@@ -142,6 +145,7 @@ export function buildSaleEmbed(input: SaleEmbedInput): EmbedBuilder {
     .setFooter({ text: `Tx: ${shortenAddr(txHash)} · Cronos` })
     .setTimestamp();
 
+  if (description) embed.setDescription(description);
   if (nftImage) embed.setImage(nftImage);
 
   return embed;
