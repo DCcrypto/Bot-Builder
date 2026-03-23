@@ -70,7 +70,7 @@ export function buildListingEmbed(input: ListingEmbedInput): EmbedBuilder {
     )
     .setTimestamp();
 
-  if (nftImage) embed.setThumbnail(nftImage);
+  if (nftImage) embed.setImage(nftImage);
 
   return embed;
 }
@@ -142,7 +142,7 @@ export function buildSaleEmbed(input: SaleEmbedInput): EmbedBuilder {
     .setFooter({ text: `Tx: ${shortenAddr(txHash)} · Cronos` })
     .setTimestamp();
 
-  if (nftImage) embed.setThumbnail(nftImage);
+  if (nftImage) embed.setImage(nftImage);
 
   return embed;
 }
