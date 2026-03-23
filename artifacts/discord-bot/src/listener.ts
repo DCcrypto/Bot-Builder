@@ -97,17 +97,19 @@ export async function startListener(state: ListenerState): Promise<void> {
         });
 
         const channel = state.listingsChannel;
-        if (channel) {
-          try {
-            await channel.send({ embeds: [embed] });
-            console.log(`[listener] Posted listing: ${listing.nftName ?? listing.id}`);
-          } catch (sendErr) {
-            console.error(`[listener] Failed to post listing embed for ${listing.id}:`, sendErr);
-            // Don't mark as seen — retry next poll
-            continue;
-          }
-        } else {
+        if (!channel) {
+          // No channel configured yet — skip without marking seen so it's retried once one is set
           console.warn("[listener] No listings channel set — use /settings channel listings");
+          continue;
+        }
+
+        try {
+          await channel.send({ embeds: [embed] });
+          console.log(`[listener] Posted listing: ${listing.nftName ?? listing.id}`);
+        } catch (sendErr) {
+          console.error(`[listener] Failed to post listing embed for ${listing.id}:`, sendErr);
+          // Don't mark as seen — retry next poll
+          continue;
         }
 
         // Persist immediately so a crash/restart can't re-announce
