@@ -2,34 +2,15 @@
   {
     "anonymous": false,
     "inputs": [
-      { "indexed": true,  "name": "listingId",    "type": "uint256" },
+      { "indexed": true,  "name": "buyer",        "type": "address" },
       { "indexed": true,  "name": "seller",       "type": "address" },
-      { "indexed": false, "name": "nftContract",  "type": "address" },
-      { "indexed": false, "name": "tokenId",      "type": "uint256" },
-      { "indexed": false, "name": "price",        "type": "uint256" },
-      { "indexed": false, "name": "paymentToken", "type": "address" }
-    ],
-    "name": "Listed",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "name": "listingId", "type": "uint256" },
-      { "indexed": true, "name": "buyer",     "type": "address" },
-      { "indexed": true, "name": "seller",    "type": "address" },
-      { "indexed": false, "name": "price",    "type": "uint256" }
+      { "indexed": true,  "name": "nftContract",  "type": "address" },
+      { "indexed": false, "name": "listingId",    "type": "uint256" },
+      { "indexed": false, "name": "tokenAmount",  "type": "uint256" },
+      { "indexed": false, "name": "croAmount",    "type": "uint256" },
+      { "indexed": false, "name": "timestamp",    "type": "uint256" }
     ],
     "name": "Sold",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "name": "listingId", "type": "uint256" },
-      { "indexed": true, "name": "seller",    "type": "address" }
-    ],
-    "name": "Cancelled",
     "type": "event"
   }
 ]

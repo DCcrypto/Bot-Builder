@@ -1,63 +1,116 @@
 import { EmbedBuilder } from "discord.js";
 import { ethers } from "ethers";
-import type { NftMetadata } from "./metadata.js";
 
 const LISTING_COLOR = 0x9b59b6;
 const SALE_COLOR = 0x2ecc71;
-const CRO_SYMBOL = "CRO";
 
-function formatAddress(address: string): string {
+function shortenAddr(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-function formatCro(wei: bigint): string {
-  const cro = parseFloat(ethers.formatEther(wei));
-  return `${cro.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${CRO_SYMBOL}`;
+function formatPrice(price: string | bigint, symbol: string): string {
+  if (typeof price === "bigint") {
+    const val = parseFloat(ethers.formatEther(price));
+    return `${val.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${symbol}`;
+  }
+  const val = parseFloat(price);
+  return `${val.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${symbol}`;
 }
 
-export function buildListingEmbed(
-  metadata: NftMetadata,
-  seller: string,
-  price: bigint,
-  listingUrl: string,
-  txHash: string
-): EmbedBuilder {
+export interface ListingEmbedInput {
+  nftName: string | null;
+  nftImage: string | null;
+  collectionName: string | null;
+  tokenId: string | null;
+  seller: string;
+  price: string;
+  paymentTokenSymbol: string;
+  listingUrl: string;
+}
+
+export function buildListingEmbed(input: ListingEmbedInput): EmbedBuilder {
+  const {
+    nftName,
+    nftImage,
+    collectionName,
+    tokenId,
+    seller,
+    price,
+    paymentTokenSymbol,
+    listingUrl,
+  } = input;
+
+  const title = nftName ? `🏷️ New Listing — ${nftName}` : "🏷️ New Listing";
+  const description =
+    collectionName && tokenId
+      ? `**${collectionName}** · Token #${tokenId}`
+      : collectionName ?? "";
+
   const embed = new EmbedBuilder()
     .setColor(LISTING_COLOR)
-    .setTitle(`🏷️ New Listing — ${metadata.name}`)
-    .setDescription(`**${metadata.collectionName}** · Token #${metadata.tokenId}`)
+    .setTitle(title)
+    .setDescription(description)
     .setURL(listingUrl)
     .addFields(
-      { name: "Price", value: formatCro(price), inline: true },
-      { name: "Seller", value: `\`${formatAddress(seller)}\``, inline: true },
-      { name: "View Listing", value: `[Open on MANE NFT](${listingUrl})`, inline: false }
+      {
+        name: "Price",
+        value: formatPrice(price, paymentTokenSymbol),
+        inline: true,
+      },
+      {
+        name: "Seller",
+        value: `\`${shortenAddr(seller)}\``,
+        inline: true,
+      },
+      {
+        name: "View Listing",
+        value: `[Open on MANE NFT](${listingUrl})`,
+        inline: false,
+      }
     )
-    .setFooter({ text: `Tx: ${formatAddress(txHash)} · Cronos` })
     .setTimestamp();
 
-  if (metadata.image) {
-    embed.setThumbnail(metadata.image);
-  }
+  if (nftImage) embed.setThumbnail(nftImage);
 
   return embed;
 }
 
-export function buildSaleEmbed(
-  metadata: NftMetadata | null,
-  buyer: string,
-  seller: string,
-  price: bigint,
-  listingId: string,
-  listingUrl: string,
-  txHash: string
-): EmbedBuilder {
-  const title = metadata
-    ? `🎉 NFT Sold — ${metadata.name}`
-    : `🎉 NFT Sold — Listing #${listingId}`;
+export interface SaleEmbedInput {
+  nftName: string | null;
+  nftImage: string | null;
+  collectionName: string | null;
+  tokenId: string | null;
+  buyer: string;
+  seller: string;
+  croAmount: bigint;
+  paymentTokenSymbol: string;
+  listingUrl: string;
+  txHash: string;
+}
 
-  const description = metadata
-    ? `**${metadata.collectionName}** · Token #${metadata.tokenId}`
-    : `Listing #${listingId}`;
+export function buildSaleEmbed(input: SaleEmbedInput): EmbedBuilder {
+  const {
+    nftName,
+    nftImage,
+    collectionName,
+    tokenId,
+    buyer,
+    seller,
+    croAmount,
+    paymentTokenSymbol,
+    listingUrl,
+    txHash,
+  } = input;
+
+  const title = nftName ? `🎉 NFT Sold — ${nftName}` : "🎉 NFT Sold";
+  const description =
+    collectionName && tokenId
+      ? `**${collectionName}** · Token #${tokenId}`
+      : collectionName ?? "";
+
+  const priceLabel = paymentTokenSymbol === "CRO" || paymentTokenSymbol === ""
+    ? "Sale Price"
+    : `Sale Price (CRO value)`;
 
   const embed = new EmbedBuilder()
     .setColor(SALE_COLOR)
@@ -65,17 +118,31 @@ export function buildSaleEmbed(
     .setDescription(description)
     .setURL(listingUrl)
     .addFields(
-      { name: "Sale Price", value: formatCro(price), inline: true },
-      { name: "Buyer", value: `\`${formatAddress(buyer)}\``, inline: true },
-      { name: "Seller", value: `\`${formatAddress(seller)}\``, inline: true },
-      { name: "View Item", value: `[Open on MANE NFT](${listingUrl})`, inline: false }
+      {
+        name: priceLabel,
+        value: formatPrice(croAmount, "CRO"),
+        inline: true,
+      },
+      {
+        name: "Buyer",
+        value: `\`${shortenAddr(buyer)}\``,
+        inline: true,
+      },
+      {
+        name: "Seller",
+        value: `\`${shortenAddr(seller)}\``,
+        inline: true,
+      },
+      {
+        name: "View Item",
+        value: `[Open on MANE NFT](${listingUrl})`,
+        inline: false,
+      }
     )
-    .setFooter({ text: `Tx: ${formatAddress(txHash)} · Cronos` })
+    .setFooter({ text: `Tx: ${shortenAddr(txHash)} · Cronos` })
     .setTimestamp();
 
-  if (metadata?.image) {
-    embed.setThumbnail(metadata.image);
-  }
+  if (nftImage) embed.setThumbnail(nftImage);
 
   return embed;
 }
