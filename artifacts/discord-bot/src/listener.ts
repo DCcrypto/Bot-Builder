@@ -2,6 +2,7 @@ import { ethers } from "ethers";
 import type { TextChannel } from "discord.js";
 import { buildListingEmbed, buildSaleEmbed } from "./embeds.js";
 import { config } from "./config.js";
+import { loadSeenIds, markSeen } from "./seenListings.js";
 import marketplaceAbi from "./abi/marketplace.json" assert { type: "json" };
 
 export interface ListenerState {
@@ -160,21 +161,34 @@ export async function startListener(state: ListenerState): Promise<void> {
     }
   }
 
-  let lastListingAnnouncedAt = new Date().toISOString();
-  const announcedListingIds = new Set<string>();
+  const announcedListingIds: Set<string> = loadSeenIds();
+  let seeded = false;
 
   async function pollNewListings(): Promise<void> {
     try {
       const listings = await fetchListings();
-      const now = lastListingAnnouncedAt;
+
+      if (!seeded) {
+        const allIds = listings.map((l) => l.id);
+        const newIds = allIds.filter((id) => !announcedListingIds.has(id));
+        if (newIds.length > 0) {
+          newIds.forEach((id) => announcedListingIds.add(id));
+          markSeen(allIds);
+          console.log(`[listener] Seeded ${allIds.length} existing listings — will only announce new ones going forward`);
+        }
+        seeded = true;
+        return;
+      }
+
+      const toMark: string[] = [];
 
       for (const listing of listings) {
         if (announcedListingIds.has(listing.id)) continue;
         if (listing.status !== "active") continue;
-        if (!listing.listedAt || listing.listedAt <= now) continue;
 
         if (!isTrackedCollection(state, listing.nftContractAddress)) {
           announcedListingIds.add(listing.id);
+          toMark.push(listing.id);
           continue;
         }
 
@@ -193,22 +207,16 @@ export async function startListener(state: ListenerState): Promise<void> {
         const channel = state.listingsChannel ?? state.salesChannel;
         if (channel) {
           await channel.send({ embeds: [embed] });
-          console.log(`[listener] Posted listing: ${listing.nftName ?? listing.id} → ${listingUrl}`);
+          console.log(`[listener] Posted listing: ${listing.nftName ?? listing.id}`);
         } else {
           console.warn("[listener] No listings channel set — use /settings channel listings");
         }
 
         announcedListingIds.add(listing.id);
+        toMark.push(listing.id);
       }
 
-      const newest = listings
-        .filter((l) => l.status === "active" && l.listedAt)
-        .map((l) => l.listedAt!)
-        .sort()
-        .at(-1);
-      if (newest && newest > lastListingAnnouncedAt) {
-        lastListingAnnouncedAt = newest;
-      }
+      if (toMark.length > 0) markSeen(toMark);
     } catch (err) {
       console.error("[listener] API listings poll error:", err);
     }
