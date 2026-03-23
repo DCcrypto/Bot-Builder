@@ -1,6 +1,6 @@
 import { ethers } from "ethers";
 import type { TextChannel } from "discord.js";
-import { fetchNftMetadata } from "./metadata.js";
+import { fetchNftMetadata, fetchListingNftInfo } from "./metadata.js";
 import { buildListingEmbed, buildSaleEmbed } from "./embeds.js";
 import { config } from "./config.js";
 import marketplaceAbi from "./abi/marketplace.json" assert { type: "json" };
@@ -14,25 +14,22 @@ export interface ListenerState {
 
 type DecodedListingEvent = {
   kind: "listing";
+  listingId: string;
   seller: string;
-  nftAddress: string;
+  nftContract: string;
   tokenId: bigint;
   price: bigint;
 };
 
 type DecodedSaleEvent = {
   kind: "sale";
+  listingId: string;
   buyer: string;
   seller: string;
-  nftAddress: string;
-  tokenId: bigint;
   price: bigint;
 };
 
 type DecodedEvent = DecodedListingEvent | DecodedSaleEvent;
-
-const LISTING_EVENT_NAMES = new Set(["ItemListed", "Listed", "NewListing", "ListingCreated"]);
-const SALE_EVENT_NAMES = new Set(["ItemBought", "Sold", "Sale", "ListingPurchased"]);
 
 function tryDecodeLog(
   iface: ethers.Interface,
@@ -42,37 +39,42 @@ function tryDecodeLog(
     const parsed = iface.parseLog({ topics: [...log.topics], data: log.data });
     if (!parsed) return null;
 
-    const name = parsed.name;
-
-    if (LISTING_EVENT_NAMES.has(name)) {
-      const seller: string = parsed.args["seller"] as string;
-      const nftAddress: string =
-        (parsed.args["nftAddress"] as string) ?? (parsed.args["nftContract"] as string) ?? "";
-      const tokenId: bigint = parsed.args["tokenId"] as bigint;
-      const price: bigint = parsed.args["price"] as bigint;
-      return { kind: "listing", seller, nftAddress, tokenId, price };
+    if (parsed.name === "Listed") {
+      return {
+        kind: "listing",
+        listingId: (parsed.args["listingId"] as bigint).toString(),
+        seller: parsed.args["seller"] as string,
+        nftContract: parsed.args["nftContract"] as string,
+        tokenId: parsed.args["tokenId"] as bigint,
+        price: parsed.args["price"] as bigint,
+      };
     }
 
-    if (SALE_EVENT_NAMES.has(name)) {
-      const buyer: string = parsed.args["buyer"] as string;
-      const seller: string = (parsed.args["seller"] as string) ?? "";
-      const nftAddress: string =
-        (parsed.args["nftAddress"] as string) ?? (parsed.args["nftContract"] as string) ?? "";
-      const tokenId: bigint = parsed.args["tokenId"] as bigint;
-      const price: bigint = parsed.args["price"] as bigint;
-      return { kind: "sale", buyer, seller, nftAddress, tokenId, price };
+    if (parsed.name === "Sold") {
+      return {
+        kind: "sale",
+        listingId: (parsed.args["listingId"] as bigint).toString(),
+        buyer: parsed.args["buyer"] as string,
+        seller: parsed.args["seller"] as string,
+        price: parsed.args["price"] as bigint,
+      };
     }
 
-    console.log(`[listener] Unhandled event: ${name}`);
+    if (parsed.name === "Cancelled") {
+      console.log(
+        `[listener] Listing ${(parsed.args["listingId"] as bigint).toString()} cancelled by ${parsed.args["seller"] as string}`
+      );
+    }
+
     return null;
   } catch {
     return null;
   }
 }
 
-function isTrackedCollection(state: ListenerState, nftAddress: string): boolean {
+function isTrackedCollection(state: ListenerState, nftContract: string): boolean {
   if (state.trackedCollections.size === 0) return true;
-  return state.trackedCollections.has(nftAddress.toLowerCase());
+  return state.trackedCollections.has(nftContract.toLowerCase());
 }
 
 export async function startListener(state: ListenerState): Promise<void> {
@@ -119,55 +121,56 @@ export async function startListener(state: ListenerState): Promise<void> {
         const txHash = log.transactionHash;
 
         if (decoded.kind === "listing") {
-          const nftAddr = decoded.nftAddress || marketplaceAddress;
-
-          if (!isTrackedCollection(state, nftAddr)) {
-            console.log(`[listener] Skipping listing — collection not tracked: ${nftAddr}`);
+          if (!isTrackedCollection(state, decoded.nftContract)) {
+            console.log(`[listener] Skipping — collection not tracked: ${decoded.nftContract}`);
             continue;
           }
 
-          console.log(`[listener] New listing in tx ${txHash}`);
-          const metadata = await fetchNftMetadata(provider, nftAddr, decoded.tokenId);
-          const embed = buildListingEmbed(
-            metadata,
-            decoded.seller,
-            decoded.price,
-            config.site.baseUrl,
-            txHash
-          );
+          console.log(`[listener] Listed: listingId=${decoded.listingId} tx=${txHash}`);
+
+          const metadata = await fetchNftMetadata(provider, decoded.nftContract, decoded.tokenId);
+          const listingUrl = `${config.site.baseUrl}/listings/${decoded.listingId}`;
+          const embed = buildListingEmbed(metadata, decoded.seller, decoded.price, listingUrl, txHash);
 
           const channel = state.listingsChannel ?? state.salesChannel;
           if (channel) {
             await channel.send({ embeds: [embed] });
-            console.log(`[listener] Posted listing: ${metadata.name}`);
+            console.log(`[listener] Posted listing: ${metadata.name} → ${listingUrl}`);
           } else {
-            console.warn("[listener] No listings channel set — use /settings channel listings");
+            console.warn("[listener] No listings channel — use /settings channel listings");
           }
         } else if (decoded.kind === "sale") {
-          const nftAddr = decoded.nftAddress || marketplaceAddress;
+          console.log(`[listener] Sold: listingId=${decoded.listingId} tx=${txHash}`);
 
-          if (!isTrackedCollection(state, nftAddr)) {
-            console.log(`[listener] Skipping sale — collection not tracked: ${nftAddr}`);
+          const listingUrl = `${config.site.baseUrl}/listings/${decoded.listingId}`;
+
+          const nftInfo = await fetchListingNftInfo(decoded.listingId);
+          let metadata = null;
+          if (nftInfo && isTrackedCollection(state, nftInfo.nftContract)) {
+            metadata = await fetchNftMetadata(provider, nftInfo.nftContract, nftInfo.tokenId);
+          } else if (nftInfo && state.trackedCollections.size > 0) {
+            console.log(`[listener] Skipping sale — collection not tracked: ${nftInfo.nftContract}`);
             continue;
+          } else if (nftInfo) {
+            metadata = await fetchNftMetadata(provider, nftInfo.nftContract, nftInfo.tokenId);
           }
 
-          console.log(`[listener] Sale in tx ${txHash}`);
-          const metadata = await fetchNftMetadata(provider, nftAddr, decoded.tokenId);
           const embed = buildSaleEmbed(
             metadata,
             decoded.buyer,
             decoded.seller,
             decoded.price,
-            config.site.baseUrl,
+            decoded.listingId,
+            listingUrl,
             txHash
           );
 
           const channel = state.salesChannel ?? state.listingsChannel;
           if (channel) {
             await channel.send({ embeds: [embed] });
-            console.log(`[listener] Posted sale: ${metadata.name}`);
+            console.log(`[listener] Posted sale: listing #${decoded.listingId} → ${listingUrl}`);
           } else {
-            console.warn("[listener] No sales channel set — use /settings channel sales");
+            console.warn("[listener] No sales channel — use /settings channel sales");
           }
         }
       }

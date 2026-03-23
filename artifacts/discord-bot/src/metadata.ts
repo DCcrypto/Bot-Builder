@@ -1,4 +1,5 @@
 import { ethers } from "ethers";
+import { config } from "./config.js";
 
 const ERC721_ABI = [
   "function tokenURI(uint256 tokenId) view returns (string)",
@@ -11,9 +12,8 @@ export interface NftMetadata {
   description: string;
   image: string;
   collectionName: string;
-  collectionSymbol: string;
   tokenId: string;
-  nftAddress: string;
+  nftContract: string;
 }
 
 function resolveIpfsUrl(url: string): string {
@@ -23,9 +23,19 @@ function resolveIpfsUrl(url: string): string {
   return url;
 }
 
+async function fetchWithTimeout(url: string, timeoutMs = 8000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchNftMetadata(
   provider: ethers.JsonRpcProvider,
-  nftAddress: string,
+  nftContract: string,
   tokenId: bigint
 ): Promise<NftMetadata> {
   const fallback: NftMetadata = {
@@ -33,43 +43,55 @@ export async function fetchNftMetadata(
     description: "",
     image: "",
     collectionName: "Unknown Collection",
-    collectionSymbol: "",
     tokenId: tokenId.toString(),
-    nftAddress,
+    nftContract,
   };
 
   try {
-    const contract = new ethers.Contract(nftAddress, ERC721_ABI, provider);
+    const siteApiUrl = `${config.site.baseUrl}/api/nft/token?contract=${nftContract}&tokenId=${tokenId.toString()}`;
+    const siteRes = await fetchWithTimeout(siteApiUrl);
+    if (siteRes.ok) {
+      const data = (await siteRes.json()) as {
+        name?: string;
+        image?: string;
+        description?: string;
+        collectionName?: string;
+      };
+      if (data && (data.name || data.image)) {
+        return {
+          name: data.name ?? fallback.name,
+          description: data.description ?? "",
+          image: data.image ? resolveIpfsUrl(data.image) : "",
+          collectionName: data.collectionName ?? fallback.collectionName,
+          tokenId: tokenId.toString(),
+          nftContract,
+        };
+      }
+    }
+  } catch {
+    // fall through to on-chain fetch
+  }
 
-    const [tokenUri, collectionName, collectionSymbol] = await Promise.allSettled([
+  try {
+    const contract = new ethers.Contract(nftContract, ERC721_ABI, provider);
+    const [tokenUriResult, nameResult] = await Promise.allSettled([
       contract.tokenURI(tokenId) as Promise<string>,
       contract.name() as Promise<string>,
-      contract.symbol() as Promise<string>,
     ]);
 
-    fallback.collectionName =
-      collectionName.status === "fulfilled" ? collectionName.value : "Unknown Collection";
-    fallback.collectionSymbol =
-      collectionSymbol.status === "fulfilled" ? collectionSymbol.value : "";
+    if (nameResult.status === "fulfilled") {
+      fallback.collectionName = nameResult.value;
+    }
 
-    if (tokenUri.status !== "fulfilled" || !tokenUri.value) {
+    if (tokenUriResult.status !== "fulfilled" || !tokenUriResult.value) {
       return fallback;
     }
 
-    const uri = resolveIpfsUrl(tokenUri.value);
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 8000);
+    const uri = resolveIpfsUrl(tokenUriResult.value);
+    const metaRes = await fetchWithTimeout(uri);
+    if (!metaRes.ok) return fallback;
 
-    let metadataRaw: Response;
-    try {
-      metadataRaw = await fetch(uri, { signal: controller.signal });
-    } finally {
-      clearTimeout(timeout);
-    }
-
-    if (!metadataRaw.ok) return fallback;
-
-    const metadata = (await metadataRaw.json()) as {
+    const metadata = (await metaRes.json()) as {
       name?: string;
       description?: string;
       image?: string;
@@ -80,11 +102,34 @@ export async function fetchNftMetadata(
       description: metadata.description ?? "",
       image: metadata.image ? resolveIpfsUrl(metadata.image) : "",
       collectionName: fallback.collectionName,
-      collectionSymbol: fallback.collectionSymbol,
       tokenId: tokenId.toString(),
-      nftAddress,
+      nftContract,
     };
   } catch {
     return fallback;
+  }
+}
+
+export async function fetchListingNftInfo(
+  listingId: string
+): Promise<{ nftContract: string; tokenId: bigint } | null> {
+  try {
+    const url = `${config.site.baseUrl}/api/listings/${listingId}`;
+    const res = await fetchWithTimeout(url);
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      nftContract?: string;
+      nft_contract?: string;
+      contractAddress?: string;
+      tokenId?: number | string;
+      token_id?: number | string;
+    };
+    const contract =
+      data.nftContract ?? data.nft_contract ?? data.contractAddress ?? null;
+    const tokenId = data.tokenId ?? data.token_id ?? null;
+    if (!contract || tokenId == null) return null;
+    return { nftContract: contract, tokenId: BigInt(tokenId) };
+  } catch {
+    return null;
   }
 }

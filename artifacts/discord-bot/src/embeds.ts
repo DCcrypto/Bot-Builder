@@ -12,28 +12,25 @@ function formatAddress(address: string): string {
 
 function formatCro(wei: bigint): string {
   const cro = parseFloat(ethers.formatEther(wei));
-  return `${cro.toLocaleString("en-US", { maximumFractionDigits: 2 })} ${CRO_SYMBOL}`;
+  return `${cro.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${CRO_SYMBOL}`;
 }
 
 export function buildListingEmbed(
   metadata: NftMetadata,
   seller: string,
   price: bigint,
-  siteUrl: string,
+  listingUrl: string,
   txHash: string
 ): EmbedBuilder {
   const embed = new EmbedBuilder()
     .setColor(LISTING_COLOR)
     .setTitle(`🏷️ New Listing — ${metadata.name}`)
     .setDescription(`**${metadata.collectionName}** · Token #${metadata.tokenId}`)
+    .setURL(listingUrl)
     .addFields(
       { name: "Price", value: formatCro(price), inline: true },
-      { name: "Seller", value: formatAddress(seller), inline: true },
-      {
-        name: "View Listing",
-        value: `[Open on MANE NFT](${siteUrl})`,
-        inline: false,
-      }
+      { name: "Seller", value: `\`${formatAddress(seller)}\``, inline: true },
+      { name: "View Listing", value: `[Open on MANE NFT](${listingUrl})`, inline: false }
     )
     .setFooter({ text: `Tx: ${formatAddress(txHash)} · Cronos` })
     .setTimestamp();
@@ -46,31 +43,37 @@ export function buildListingEmbed(
 }
 
 export function buildSaleEmbed(
-  metadata: NftMetadata,
+  metadata: NftMetadata | null,
   buyer: string,
   seller: string,
   price: bigint,
-  siteUrl: string,
+  listingId: string,
+  listingUrl: string,
   txHash: string
 ): EmbedBuilder {
+  const title = metadata
+    ? `🎉 NFT Sold — ${metadata.name}`
+    : `🎉 NFT Sold — Listing #${listingId}`;
+
+  const description = metadata
+    ? `**${metadata.collectionName}** · Token #${metadata.tokenId}`
+    : `Listing #${listingId}`;
+
   const embed = new EmbedBuilder()
     .setColor(SALE_COLOR)
-    .setTitle(`🎉 NFT Sold — ${metadata.name}`)
-    .setDescription(`**${metadata.collectionName}** · Token #${metadata.tokenId}`)
+    .setTitle(title)
+    .setDescription(description)
+    .setURL(listingUrl)
     .addFields(
       { name: "Sale Price", value: formatCro(price), inline: true },
-      { name: "Buyer", value: formatAddress(buyer), inline: true },
-      { name: "Seller", value: formatAddress(seller), inline: true },
-      {
-        name: "View Item",
-        value: `[Open on MANE NFT](${siteUrl})`,
-        inline: false,
-      }
+      { name: "Buyer", value: `\`${formatAddress(buyer)}\``, inline: true },
+      { name: "Seller", value: `\`${formatAddress(seller)}\``, inline: true },
+      { name: "View Item", value: `[Open on MANE NFT](${listingUrl})`, inline: false }
     )
     .setFooter({ text: `Tx: ${formatAddress(txHash)} · Cronos` })
     .setTimestamp();
 
-  if (metadata.image) {
+  if (metadata?.image) {
     embed.setThumbnail(metadata.image);
   }
 

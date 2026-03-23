@@ -2,42 +2,12 @@
   {
     "anonymous": false,
     "inputs": [
-      { "indexed": true, "name": "seller", "type": "address" },
-      { "indexed": true, "name": "nftAddress", "type": "address" },
-      { "indexed": true, "name": "tokenId", "type": "uint256" },
-      { "indexed": false, "name": "price", "type": "uint256" }
-    ],
-    "name": "ItemListed",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "name": "buyer", "type": "address" },
-      { "indexed": true, "name": "nftAddress", "type": "address" },
-      { "indexed": true, "name": "tokenId", "type": "uint256" },
-      { "indexed": false, "name": "price", "type": "uint256" }
-    ],
-    "name": "ItemBought",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "name": "seller", "type": "address" },
-      { "indexed": true, "name": "nftAddress", "type": "address" },
-      { "indexed": true, "name": "tokenId", "type": "uint256" }
-    ],
-    "name": "ItemCanceled",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "name": "seller", "type": "address" },
-      { "indexed": false, "name": "nftAddress", "type": "address" },
-      { "indexed": false, "name": "tokenId", "type": "uint256" },
-      { "indexed": false, "name": "price", "type": "uint256" }
+      { "indexed": true,  "name": "listingId",    "type": "uint256" },
+      { "indexed": true,  "name": "seller",       "type": "address" },
+      { "indexed": false, "name": "nftContract",  "type": "address" },
+      { "indexed": false, "name": "tokenId",      "type": "uint256" },
+      { "indexed": false, "name": "price",        "type": "uint256" },
+      { "indexed": false, "name": "paymentToken", "type": "address" }
     ],
     "name": "Listed",
     "type": "event"
@@ -45,11 +15,10 @@
   {
     "anonymous": false,
     "inputs": [
-      { "indexed": true, "name": "buyer", "type": "address" },
-      { "indexed": true, "name": "seller", "type": "address" },
-      { "indexed": false, "name": "nftAddress", "type": "address" },
-      { "indexed": false, "name": "tokenId", "type": "uint256" },
-      { "indexed": false, "name": "price", "type": "uint256" }
+      { "indexed": true, "name": "listingId", "type": "uint256" },
+      { "indexed": true, "name": "buyer",     "type": "address" },
+      { "indexed": true, "name": "seller",    "type": "address" },
+      { "indexed": false, "name": "price",    "type": "uint256" }
     ],
     "name": "Sold",
     "type": "event"
@@ -57,46 +26,10 @@
   {
     "anonymous": false,
     "inputs": [
-      { "indexed": true, "name": "seller", "type": "address" },
-      { "indexed": true, "name": "nftAddress", "type": "address" },
-      { "indexed": true, "name": "tokenId", "type": "uint256" },
-      { "indexed": false, "name": "price", "type": "uint256" }
+      { "indexed": true, "name": "listingId", "type": "uint256" },
+      { "indexed": true, "name": "seller",    "type": "address" }
     ],
-    "name": "NewListing",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "name": "buyer", "type": "address" },
-      { "indexed": true, "name": "seller", "type": "address" },
-      { "indexed": true, "name": "nftAddress", "type": "address" },
-      { "indexed": false, "name": "tokenId", "type": "uint256" },
-      { "indexed": false, "name": "price", "type": "uint256" }
-    ],
-    "name": "Sale",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "name": "seller", "type": "address" },
-      { "indexed": true, "name": "nftAddress", "type": "address" },
-      { "indexed": true, "name": "tokenId", "type": "uint256" },
-      { "indexed": false, "name": "price", "type": "uint256" }
-    ],
-    "name": "ListingCreated",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      { "indexed": true, "name": "buyer", "type": "address" },
-      { "indexed": false, "name": "nftAddress", "type": "address" },
-      { "indexed": false, "name": "tokenId", "type": "uint256" },
-      { "indexed": false, "name": "price", "type": "uint256" }
-    ],
-    "name": "ListingPurchased",
+    "name": "Cancelled",
     "type": "event"
   }
 ]
