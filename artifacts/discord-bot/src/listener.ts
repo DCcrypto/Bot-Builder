@@ -5,6 +5,13 @@ import { buildListingEmbed, buildSaleEmbed } from "./embeds.js";
 import { config } from "./config.js";
 import marketplaceAbi from "./abi/marketplace.json" assert { type: "json" };
 
+export interface ListenerState {
+  listingsChannel: TextChannel | null;
+  salesChannel: TextChannel | null;
+  trackedCollections: Set<string>;
+  connected: boolean;
+}
+
 type DecodedListingEvent = {
   kind: "listing";
   seller: string;
@@ -56,17 +63,19 @@ function tryDecodeLog(
       return { kind: "sale", buyer, seller, nftAddress, tokenId, price };
     }
 
-    console.log(`[listener] Unhandled event: ${name} — args: ${parsed.args.toString()}`);
+    console.log(`[listener] Unhandled event: ${name}`);
     return null;
   } catch {
     return null;
   }
 }
 
-export async function startListener(
-  listingsChannel: TextChannel | null,
-  salesChannel: TextChannel | null
-): Promise<void> {
+function isTrackedCollection(state: ListenerState, nftAddress: string): boolean {
+  if (state.trackedCollections.size === 0) return true;
+  return state.trackedCollections.has(nftAddress.toLowerCase());
+}
+
+export async function startListener(state: ListenerState): Promise<void> {
   console.log("[listener] Connecting to Cronos RPC:", config.cronos.rpcUrl);
 
   let provider: ethers.JsonRpcProvider | null = null;
@@ -77,16 +86,12 @@ export async function startListener(
 
   async function connect(): Promise<void> {
     provider = new ethers.JsonRpcProvider(config.cronos.rpcUrl);
-    try {
-      const network = await provider.getNetwork();
-      console.log(`[listener] Connected to network: ${network.name} (chainId: ${network.chainId})`);
-      const current = await provider.getBlockNumber();
-      lastBlock = current;
-      console.log(`[listener] Starting from block: ${lastBlock}`);
-    } catch (err) {
-      console.error("[listener] Failed to connect:", err);
-      throw err;
-    }
+    const network = await provider.getNetwork();
+    console.log(`[listener] Connected to Cronos (chainId: ${network.chainId})`);
+    const current = await provider.getBlockNumber();
+    lastBlock = current;
+    state.connected = true;
+    console.log(`[listener] Starting from block: ${lastBlock}`);
   }
 
   async function pollLogs(): Promise<void> {
@@ -112,40 +117,57 @@ export async function startListener(
         if (!decoded) continue;
 
         const txHash = log.transactionHash;
-        console.log(`[listener] Event detected: ${decoded.kind} in tx ${txHash}`);
 
         if (decoded.kind === "listing") {
           const nftAddr = decoded.nftAddress || marketplaceAddress;
-          const metadata = await fetchNftMetadata(provider, nftAddr, decoded.tokenId);
-          const nftUrl = `${config.site.baseUrl}`;
-          const embed = buildListingEmbed(metadata, decoded.seller, decoded.price, nftUrl, txHash);
 
-          const channel = listingsChannel ?? salesChannel;
+          if (!isTrackedCollection(state, nftAddr)) {
+            console.log(`[listener] Skipping listing — collection not tracked: ${nftAddr}`);
+            continue;
+          }
+
+          console.log(`[listener] New listing in tx ${txHash}`);
+          const metadata = await fetchNftMetadata(provider, nftAddr, decoded.tokenId);
+          const embed = buildListingEmbed(
+            metadata,
+            decoded.seller,
+            decoded.price,
+            config.site.baseUrl,
+            txHash
+          );
+
+          const channel = state.listingsChannel ?? state.salesChannel;
           if (channel) {
             await channel.send({ embeds: [embed] });
-            console.log(`[listener] Posted listing to Discord: ${metadata.name}`);
+            console.log(`[listener] Posted listing: ${metadata.name}`);
           } else {
-            console.warn("[listener] No listings channel configured — skipping Discord post");
+            console.warn("[listener] No listings channel set — use /settings channel listings");
           }
         } else if (decoded.kind === "sale") {
           const nftAddr = decoded.nftAddress || marketplaceAddress;
+
+          if (!isTrackedCollection(state, nftAddr)) {
+            console.log(`[listener] Skipping sale — collection not tracked: ${nftAddr}`);
+            continue;
+          }
+
+          console.log(`[listener] Sale in tx ${txHash}`);
           const metadata = await fetchNftMetadata(provider, nftAddr, decoded.tokenId);
-          const nftUrl = `${config.site.baseUrl}`;
           const embed = buildSaleEmbed(
             metadata,
             decoded.buyer,
             decoded.seller,
             decoded.price,
-            nftUrl,
+            config.site.baseUrl,
             txHash
           );
 
-          const channel = salesChannel ?? listingsChannel;
+          const channel = state.salesChannel ?? state.listingsChannel;
           if (channel) {
             await channel.send({ embeds: [embed] });
-            console.log(`[listener] Posted sale to Discord: ${metadata.name}`);
+            console.log(`[listener] Posted sale: ${metadata.name}`);
           } else {
-            console.warn("[listener] No sales channel configured — skipping Discord post");
+            console.warn("[listener] No sales channel set — use /settings channel sales");
           }
         }
       }
@@ -154,6 +176,7 @@ export async function startListener(
     } catch (err) {
       console.error("[listener] Poll error:", err);
       provider = null;
+      state.connected = false;
     }
   }
 
@@ -162,8 +185,10 @@ export async function startListener(
       if (!provider) {
         try {
           await connect();
-        } catch {
-          console.log(`[listener] Reconnecting in 30s...`);
+        } catch (err) {
+          console.error("[listener] Connection failed:", err);
+          state.connected = false;
+          console.log("[listener] Retrying in 30s...");
           await sleep(30_000);
           continue;
         }
@@ -175,7 +200,7 @@ export async function startListener(
   }
 
   run().catch((err) => {
-    console.error("[listener] Fatal error in run loop:", err);
+    console.error("[listener] Fatal error:", err);
     process.exit(1);
   });
 }

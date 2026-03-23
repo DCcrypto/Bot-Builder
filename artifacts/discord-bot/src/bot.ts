@@ -1,72 +1,81 @@
 import { Client, GatewayIntentBits, type TextChannel } from "discord.js";
 import { config } from "./config.js";
-import { startListener } from "./listener.js";
+import { startListener, type ListenerState } from "./listener.js";
+import { registerCommands, handleInteraction } from "./commands.js";
+import { getSettings } from "./settings.js";
+
+async function fetchTextChannel(
+  client: Client,
+  id: string
+): Promise<TextChannel | null> {
+  try {
+    const ch = await client.channels.fetch(id);
+    if (ch && ch.isTextBased()) return ch as TextChannel;
+    console.warn(`[bot] Channel ${id} is not a text channel`);
+    return null;
+  } catch (err) {
+    console.error(`[bot] Could not fetch channel ${id}:`, err);
+    return null;
+  }
+}
 
 export async function startBot(): Promise<void> {
   const client = new Client({
     intents: [GatewayIntentBits.Guilds],
   });
 
+  const state: ListenerState = {
+    listingsChannel: null,
+    salesChannel: null,
+    trackedCollections: new Set(),
+    connected: false,
+  };
+
   client.once("ready", async (c) => {
     console.log(`[bot] Logged in as ${c.user.tag}`);
 
-    let listingsChannel: TextChannel | null = null;
-    let salesChannel: TextChannel | null = null;
+    const settings = getSettings();
 
-    if (config.discord.channelListingsId) {
-      try {
-        const ch = await client.channels.fetch(config.discord.channelListingsId);
-        if (ch && ch.isTextBased()) {
-          listingsChannel = ch as TextChannel;
-          console.log(`[bot] Listings channel: #${listingsChannel.name}`);
-        } else {
-          console.warn(
-            `[bot] Channel ${config.discord.channelListingsId} is not a text channel`
-          );
-        }
-      } catch (err) {
-        console.error(
-          `[bot] Could not find listings channel ${config.discord.channelListingsId}:`,
-          err
-        );
+    if (settings.channelListingsId) {
+      state.listingsChannel = await fetchTextChannel(client, settings.channelListingsId);
+      if (state.listingsChannel) {
+        console.log(`[bot] Listings channel: #${state.listingsChannel.name}`);
       }
     } else {
-      console.warn("[bot] DISCORD_CHANNEL_LISTINGS_ID not set — listing announcements disabled");
+      console.warn("[bot] No listings channel set. Use /settings channel listings to configure.");
     }
 
-    if (config.discord.channelSalesId) {
-      if (config.discord.channelSalesId === config.discord.channelListingsId) {
-        salesChannel = listingsChannel;
-        console.log("[bot] Sales and listings sharing the same channel");
+    if (settings.channelSalesId) {
+      if (settings.channelSalesId === settings.channelListingsId) {
+        state.salesChannel = state.listingsChannel;
+        console.log("[bot] Sales channel: same as listings");
       } else {
-        try {
-          const ch = await client.channels.fetch(config.discord.channelSalesId);
-          if (ch && ch.isTextBased()) {
-            salesChannel = ch as TextChannel;
-            console.log(`[bot] Sales channel: #${salesChannel.name}`);
-          } else {
-            console.warn(
-              `[bot] Channel ${config.discord.channelSalesId} is not a text channel`
-            );
-          }
-        } catch (err) {
-          console.error(
-            `[bot] Could not find sales channel ${config.discord.channelSalesId}:`,
-            err
-          );
+        state.salesChannel = await fetchTextChannel(client, settings.channelSalesId);
+        if (state.salesChannel) {
+          console.log(`[bot] Sales channel: #${state.salesChannel.name}`);
         }
       }
     } else {
-      console.warn("[bot] DISCORD_CHANNEL_SALES_ID not set — sale announcements disabled");
+      console.warn("[bot] No sales channel set. Use /settings channel sales to configure.");
     }
 
-    if (!listingsChannel && !salesChannel) {
-      console.warn(
-        "[bot] No Discord channels configured. Set DISCORD_CHANNEL_LISTINGS_ID and/or DISCORD_CHANNEL_SALES_ID."
-      );
+    for (const addr of settings.trackedCollections) {
+      state.trackedCollections.add(addr.toLowerCase());
     }
 
-    startListener(listingsChannel, salesChannel);
+    if (settings.trackedCollections.length > 0) {
+      console.log(`[bot] Tracking ${settings.trackedCollections.length} collection(s)`);
+    } else {
+      console.log("[bot] Tracking all collections (no filter). Use /settings collection add to filter.");
+    }
+
+    await registerCommands(client);
+    startListener(state);
+  });
+
+  client.on("interactionCreate", async (interaction) => {
+    if (!interaction.isChatInputCommand()) return;
+    await handleInteraction(interaction, state);
   });
 
   client.on("error", (err) => {
