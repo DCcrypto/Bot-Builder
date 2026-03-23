@@ -8,13 +8,11 @@ const SETTINGS_FILE = join(DATA_DIR, "settings.json");
 
 export interface BotSettings {
   channelListingsId: string | null;
-  channelSalesId: string | null;
   trackedCollections: string[];
 }
 
 const DEFAULT_SETTINGS: BotSettings = {
   channelListingsId: process.env["DISCORD_CHANNEL_LISTINGS_ID"] ?? null,
-  channelSalesId: process.env["DISCORD_CHANNEL_SALES_ID"] ?? null,
   trackedCollections: [],
 };
 
@@ -35,7 +33,6 @@ export function loadSettings(): BotSettings {
     const parsed = JSON.parse(raw) as Partial<BotSettings>;
     return {
       channelListingsId: parsed.channelListingsId ?? DEFAULT_SETTINGS.channelListingsId,
-      channelSalesId: parsed.channelSalesId ?? DEFAULT_SETTINGS.channelSalesId,
       trackedCollections: parsed.trackedCollections ?? [],
     };
   } catch {
@@ -56,13 +53,6 @@ export function getSettings(): BotSettings {
 export function setListingsChannel(id: string | null): BotSettings {
   const s = loadSettings();
   s.channelListingsId = id;
-  saveSettings(s);
-  return s;
-}
-
-export function setSalesChannel(id: string | null): BotSettings {
-  const s = loadSettings();
-  s.channelSalesId = id;
   saveSettings(s);
   return s;
 }

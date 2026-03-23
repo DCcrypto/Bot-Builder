@@ -129,7 +129,7 @@ export async function startListener(state: ListenerState): Promise<void> {
 
         try {
           await channel.send({ embeds: [embed] });
-          console.log(`[listener] Posted listing: ${listing.nftName ?? listing.id}`);
+          console.log(`[listener] Posted listing: ${listing.nftName ?? listing.id} → #${channel.name} (${channel.id})`);
         } catch (sendErr) {
           console.error(`[listener] Failed to post listing embed for ${listing.id}:`, sendErr);
           // Don't mark as seen — retry next poll
