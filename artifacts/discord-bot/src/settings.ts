@@ -8,12 +8,14 @@ const SETTINGS_FILE = join(DATA_DIR, "settings.json");
 
 export interface BotSettings {
   channelListingsId: string | null;
+  channelMintsId: string | null;
   trackedCollections: string[];
   cooldownHours: number;
 }
 
 const DEFAULT_SETTINGS: BotSettings = {
   channelListingsId: process.env["DISCORD_CHANNEL_LISTINGS_ID"] ?? null,
+  channelMintsId: null,
   trackedCollections: [],
   cooldownHours: 6,
 };
@@ -35,6 +37,7 @@ export function loadSettings(): BotSettings {
     const parsed = JSON.parse(raw) as Partial<BotSettings>;
     return {
       channelListingsId: parsed.channelListingsId ?? DEFAULT_SETTINGS.channelListingsId,
+      channelMintsId: parsed.channelMintsId ?? null,
       trackedCollections: parsed.trackedCollections ?? [],
       cooldownHours: typeof parsed.cooldownHours === "number" ? parsed.cooldownHours : DEFAULT_SETTINGS.cooldownHours,
     };
@@ -56,6 +59,13 @@ export function getSettings(): BotSettings {
 export function setListingsChannel(id: string | null): BotSettings {
   const s = loadSettings();
   s.channelListingsId = id;
+  saveSettings(s);
+  return s;
+}
+
+export function setMintsChannel(id: string | null): BotSettings {
+  const s = loadSettings();
+  s.channelMintsId = id;
   saveSettings(s);
   return s;
 }

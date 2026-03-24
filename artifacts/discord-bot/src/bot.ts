@@ -1,6 +1,7 @@
 import { Client, GatewayIntentBits, type TextChannel } from "discord.js";
 import { config } from "./config.js";
 import { startListener, type ListenerState } from "./listener.js";
+import { startMintListener } from "./mintListener.js";
 import { registerCommands, handleInteraction } from "./commands.js";
 import { getSettings } from "./settings.js";
 
@@ -26,6 +27,7 @@ export async function startBot(): Promise<void> {
 
   const state: ListenerState = {
     listingsChannel: null,
+    mintsChannel: null,
     trackedCollections: new Set(),
     relistCooldownMs: 6 * 60 * 60 * 1000,
   };
@@ -45,6 +47,15 @@ export async function startBot(): Promise<void> {
       console.warn("[bot] No listings channel set. Use /settings channel listings to configure.");
     }
 
+    if (settings.channelMintsId) {
+      state.mintsChannel = await fetchTextChannel(client, settings.channelMintsId);
+      if (state.mintsChannel) {
+        console.log(`[bot] Mints channel: #${state.mintsChannel.name}`);
+      }
+    } else {
+      console.warn("[bot] No mints channel set. Use /settings channel mints to configure.");
+    }
+
     state.relistCooldownMs = (settings.cooldownHours ?? 6) * 60 * 60 * 1000;
 
     for (const addr of settings.trackedCollections) {
@@ -59,6 +70,7 @@ export async function startBot(): Promise<void> {
 
     await registerCommands(client);
     startListener(state);
+    startMintListener(state);
   });
 
   client.on("interactionCreate", async (interaction) => {

@@ -13,6 +13,7 @@ import { ethers } from "ethers";
 import {
   getSettings,
   setListingsChannel,
+  setMintsChannel,
   setCooldown,
   setOnlyCollection,
   clearTrackedCollections,
@@ -42,6 +43,18 @@ export const settingsCommand = new SlashCommandBuilder()
             opt
               .setName("channel")
               .setDescription("The text channel to post new listings in")
+              .addChannelTypes(ChannelType.GuildText)
+              .setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName("mints")
+          .setDescription("Set the channel for live NFT mint announcements")
+          .addChannelOption((opt) =>
+            opt
+              .setName("channel")
+              .setDescription("The text channel to post new mints in")
               .addChannelTypes(ChannelType.GuildText)
               .setRequired(true)
           )
@@ -143,6 +156,8 @@ export async function handleInteraction(
       await handleSetCooldown(interaction, state);
     } else if (subgroup === "channel" && sub === "listings") {
       await handleSetListingsChannel(interaction, state);
+    } else if (subgroup === "channel" && sub === "mints") {
+      await handleSetMintsChannel(interaction, state);
     } else if (subgroup === "collection" && sub === "add") {
       await handleAddCollection(interaction, state);
     } else if (subgroup === "collection" && sub === "remove") {
@@ -169,18 +184,24 @@ async function handleStatus(
   const s = getSettings();
 
   const listingsCh = s.channelListingsId ? `<#${s.channelListingsId}>` : "Not set";
+  const mintsCh = s.channelMintsId ? `<#${s.channelMintsId}>` : "Not set";
   const collections =
     s.trackedCollections.length > 0
       ? s.trackedCollections.map((a) => `\`${a}\``).join("\n")
       : "All collections (no filter)";
   const cooldownHours = s.cooldownHours ?? 6;
   const cooldownDisplay = cooldownHours === 0 ? "Disabled" : `${cooldownHours}h`;
+  const mintNote =
+    s.trackedCollections.length === 1
+      ? ""
+      : "\n⚠️ *Mint tracking requires exactly one collection to be set via `/settings collection set`*";
 
   const embed = new EmbedBuilder()
     .setColor(0x9b59b6)
     .setTitle("⚙️ MANE NFT Bot — Current Settings")
     .addFields(
       { name: "📋 Listings Channel", value: listingsCh, inline: false },
+      { name: "🪙 Mints Channel", value: mintsCh + mintNote, inline: false },
       { name: "⏱️ Relist Cooldown", value: cooldownDisplay, inline: false },
       { name: "🎨 Tracked Collections", value: collections, inline: false }
     )
@@ -200,6 +221,28 @@ async function handleSetCooldown(
   const display = hours === 0 ? "disabled (all relists will be announced)" : `${hours} hour${hours === 1 ? "" : "s"}`;
   await interaction.editReply(`✅ Relist cooldown set to **${display}**. Takes effect on the next poll.`);
   console.log(`[commands] Relist cooldown updated to ${hours}h`);
+}
+
+async function handleSetMintsChannel(
+  interaction: ChatInputCommandInteraction,
+  state: ListenerState
+): Promise<void> {
+  const channel = interaction.options.getChannel("channel", true);
+  setMintsChannel(channel.id);
+
+  try {
+    const fetched = await interaction.client.channels.fetch(channel.id);
+    if (fetched && fetched.isTextBased()) {
+      state.mintsChannel = fetched as import("discord.js").TextChannel;
+    }
+  } catch {
+    // channel fetch failed, state not updated
+  }
+
+  await interaction.editReply(
+    `✅ Mints channel set to <#${channel.id}>. Live NFT mints will be announced there.\n\n💡 Make sure you have one collection set via \`/settings collection set <address>\` to enable mint tracking.`
+  );
+  console.log(`[commands] Mints channel updated to ${channel.id}`);
 }
 
 async function handleSetListingsChannel(
