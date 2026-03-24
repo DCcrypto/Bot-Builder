@@ -88,15 +88,17 @@ export async function startListener(state: ListenerState): Promise<void> {
           continue;
         }
 
-        // Suppress rapid relisting of the same physical NFT
-        const key = nftKey(listing);
-        const lastAt = recentNfts.get(key);
+        // Suppress rapid relisting of the same physical NFT (only when cooldown > 0)
         const cooldownMs = state.relistCooldownMs ?? DEFAULT_COOLDOWN_MS;
-        if (lastAt !== undefined && Date.now() - lastAt < cooldownMs) {
-          console.log(`[listener] Skipped relist within cooldown: ${listing.nftName ?? listing.id}`);
-          announcedListingIds.add(listing.id);
-          markSeen([listing.id]);
-          continue;
+        if (cooldownMs > 0) {
+          const key = nftKey(listing);
+          const lastAt = recentNfts.get(key);
+          if (lastAt !== undefined && Date.now() - lastAt < cooldownMs) {
+            console.log(`[listener] Skipped relist within cooldown: ${listing.nftName ?? listing.id}`);
+            announcedListingIds.add(listing.id);
+            markSeen([listing.id]);
+            continue;
+          }
         }
 
         const listingUrl = `${config.site.baseUrl}/marketplace`;
@@ -127,10 +129,12 @@ export async function startListener(state: ListenerState): Promise<void> {
           continue;
         }
 
-        // Persist immediately so a crash/restart can't re-announce
+        // Persist immediately so a crash/restart can't re-announce the exact same listing
         announcedListingIds.add(listing.id);
         markSeen([listing.id]);
-        recentNfts.set(key, Date.now());
+        if (cooldownMs > 0) {
+          recentNfts.set(nftKey(listing), Date.now());
+        }
       }
     } catch (err) {
       console.error("[listener] API listings poll error:", err);
