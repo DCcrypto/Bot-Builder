@@ -62,7 +62,8 @@ export async function startListener(state: ListenerState): Promise<void> {
   const announcedListingIds: Set<string> = loadSeenIds();
   // Tracks the last time each NFT (by contract:tokenId) was announced
   const recentNfts = new Map<string, number>();
-  let seeded = false;
+
+  console.log(`[listener] Loaded ${announcedListingIds.size} previously seen listing IDs`);
 
   function nftKey(listing: ApiListing): string {
     return `${listing.nftContractAddress.toLowerCase()}:${listing.tokenId}`;
@@ -71,23 +72,6 @@ export async function startListener(state: ListenerState): Promise<void> {
   async function pollNewListings(): Promise<void> {
     try {
       const listings = await fetchListings();
-
-      if (!seeded) {
-        const allIds = listings.map((l) => l.id);
-        const newIds = allIds.filter((id) => !announcedListingIds.has(id));
-        if (newIds.length > 0) {
-          newIds.forEach((id) => announcedListingIds.add(id));
-          markSeen(allIds);
-          console.log(`[listener] Seeded ${allIds.length} existing listings — will only announce new ones going forward`);
-        }
-        // Populate cooldown map with all currently listed NFTs so relists
-        // right after startup don't sneak through under a new UUID
-        for (const l of listings) {
-          recentNfts.set(nftKey(l), Date.now());
-        }
-        seeded = true;
-        return;
-      }
 
       for (const listing of listings) {
         if (announcedListingIds.has(listing.id)) continue;
