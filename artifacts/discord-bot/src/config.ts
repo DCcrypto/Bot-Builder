@@ -13,7 +13,7 @@ export const config = {
     token: requireEnv("DISCORD_BOT_TOKEN"),
   },
   cronos: {
-    pollIntervalMs: parseInt(optionalEnv("POLL_INTERVAL_MS", "30000"), 10),
+    pollIntervalMs: parseInt(optionalEnv("POLL_INTERVAL_MS", "15000"), 10),
   },
   site: {
     baseUrl: optionalEnv("SITE_BASE_URL", "https://manenft.com"),

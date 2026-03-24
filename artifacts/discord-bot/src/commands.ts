@@ -7,6 +7,7 @@ import {
   PermissionFlagsBits,
   EmbedBuilder,
   ChannelType,
+  MessageFlags,
 } from "discord.js";
 import { ethers } from "ethers";
 import {
@@ -115,7 +116,7 @@ export async function handleInteraction(
   const subgroup = interaction.options.getSubcommandGroup(false);
   const sub = interaction.options.getSubcommand(false);
 
-  await interaction.deferReply({ ephemeral: true });
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   try {
     if (!subgroup && sub === "status") {
