@@ -9,11 +9,13 @@ const SETTINGS_FILE = join(DATA_DIR, "settings.json");
 export interface BotSettings {
   channelListingsId: string | null;
   trackedCollections: string[];
+  cooldownHours: number;
 }
 
 const DEFAULT_SETTINGS: BotSettings = {
   channelListingsId: process.env["DISCORD_CHANNEL_LISTINGS_ID"] ?? null,
   trackedCollections: [],
+  cooldownHours: 6,
 };
 
 function ensureDataDir(): void {
@@ -34,6 +36,7 @@ export function loadSettings(): BotSettings {
     return {
       channelListingsId: parsed.channelListingsId ?? DEFAULT_SETTINGS.channelListingsId,
       trackedCollections: parsed.trackedCollections ?? [],
+      cooldownHours: typeof parsed.cooldownHours === "number" ? parsed.cooldownHours : DEFAULT_SETTINGS.cooldownHours,
     };
   } catch {
     console.warn("[settings] Failed to parse settings file, using defaults");
@@ -53,6 +56,13 @@ export function getSettings(): BotSettings {
 export function setListingsChannel(id: string | null): BotSettings {
   const s = loadSettings();
   s.channelListingsId = id;
+  saveSettings(s);
+  return s;
+}
+
+export function setCooldown(hours: number): BotSettings {
+  const s = loadSettings();
+  s.cooldownHours = hours;
   saveSettings(s);
   return s;
 }

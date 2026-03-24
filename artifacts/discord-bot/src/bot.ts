@@ -27,6 +27,7 @@ export async function startBot(): Promise<void> {
   const state: ListenerState = {
     listingsChannel: null,
     trackedCollections: new Set(),
+    relistCooldownMs: 6 * 60 * 60 * 1000,
   };
 
   client.once("clientReady", async (c) => {
@@ -43,6 +44,8 @@ export async function startBot(): Promise<void> {
     } else {
       console.warn("[bot] No listings channel set. Use /settings channel listings to configure.");
     }
+
+    state.relistCooldownMs = (settings.cooldownHours ?? 6) * 60 * 60 * 1000;
 
     for (const addr of settings.trackedCollections) {
       state.trackedCollections.add(addr.toLowerCase());

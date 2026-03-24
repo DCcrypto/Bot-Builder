@@ -12,6 +12,7 @@ import { ethers } from "ethers";
 import {
   getSettings,
   setListingsChannel,
+  setCooldown,
   addTrackedCollection,
   removeTrackedCollection,
 } from "./settings.js";
@@ -41,6 +42,19 @@ export const settingsCommand = new SlashCommandBuilder()
               .addChannelTypes(ChannelType.GuildText)
               .setRequired(true)
           )
+      )
+  )
+  .addSubcommand((sub) =>
+    sub
+      .setName("cooldown")
+      .setDescription("Set the relist cooldown — how long before the same NFT can be announced again")
+      .addIntegerOption((opt) =>
+        opt
+          .setName("hours")
+          .setDescription("Cooldown in hours (0 = no cooldown, default 6)")
+          .setMinValue(0)
+          .setMaxValue(168)
+          .setRequired(true)
       )
   )
   .addSubcommandGroup((group) =>
@@ -106,6 +120,8 @@ export async function handleInteraction(
   try {
     if (!subgroup && sub === "status") {
       await handleStatus(interaction, state);
+    } else if (!subgroup && sub === "cooldown") {
+      await handleSetCooldown(interaction, state);
     } else if (subgroup === "channel" && sub === "listings") {
       await handleSetListingsChannel(interaction, state);
     } else if (subgroup === "collection" && sub === "add") {
@@ -134,17 +150,33 @@ async function handleStatus(
     s.trackedCollections.length > 0
       ? s.trackedCollections.map((a) => `\`${a}\``).join("\n")
       : "All collections (no filter)";
+  const cooldownHours = s.cooldownHours ?? 6;
+  const cooldownDisplay = cooldownHours === 0 ? "Disabled" : `${cooldownHours}h`;
 
   const embed = new EmbedBuilder()
     .setColor(0x9b59b6)
     .setTitle("⚙️ MANE NFT Bot — Current Settings")
     .addFields(
       { name: "📋 Listings Channel", value: listingsCh, inline: false },
+      { name: "⏱️ Relist Cooldown", value: cooldownDisplay, inline: false },
       { name: "🎨 Tracked Collections", value: collections, inline: false }
     )
     .setTimestamp();
 
   await interaction.editReply({ embeds: [embed] });
+}
+
+async function handleSetCooldown(
+  interaction: ChatInputCommandInteraction,
+  state: ListenerState
+): Promise<void> {
+  const hours = interaction.options.getInteger("hours", true);
+  setCooldown(hours);
+  state.relistCooldownMs = hours * 60 * 60 * 1000;
+
+  const display = hours === 0 ? "disabled (all relists will be announced)" : `${hours} hour${hours === 1 ? "" : "s"}`;
+  await interaction.editReply(`✅ Relist cooldown set to **${display}**. Takes effect on the next poll.`);
+  console.log(`[commands] Relist cooldown updated to ${hours}h`);
 }
 
 async function handleSetListingsChannel(

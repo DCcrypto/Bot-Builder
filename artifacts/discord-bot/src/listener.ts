@@ -6,6 +6,7 @@ import { loadSeenIds, markSeen } from "./seenListings.js";
 export interface ListenerState {
   listingsChannel: TextChannel | null;
   trackedCollections: Set<string>;
+  relistCooldownMs: number;
 }
 
 export interface ApiListing {
@@ -52,8 +53,8 @@ async function fetchListings(): Promise<ApiListing[]> {
   return (await res.json()) as ApiListing[];
 }
 
-// How long to suppress re-announcements of the same NFT (contract + tokenId)
-const RELIST_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
+// Default fallback — overridden at runtime via state.relistCooldownMs
+const DEFAULT_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 export async function startListener(state: ListenerState): Promise<void> {
   console.log("[listener] Starting MANE NFT listener (listings only)");
@@ -106,7 +107,8 @@ export async function startListener(state: ListenerState): Promise<void> {
         // Suppress rapid relisting of the same physical NFT
         const key = nftKey(listing);
         const lastAt = recentNfts.get(key);
-        if (lastAt !== undefined && Date.now() - lastAt < RELIST_COOLDOWN_MS) {
+        const cooldownMs = state.relistCooldownMs ?? DEFAULT_COOLDOWN_MS;
+        if (lastAt !== undefined && Date.now() - lastAt < cooldownMs) {
           console.log(`[listener] Skipped relist within cooldown: ${listing.nftName ?? listing.id}`);
           announcedListingIds.add(listing.id);
           markSeen([listing.id]);
