@@ -14,6 +14,8 @@ import {
   getSettings,
   setListingsChannel,
   setCooldown,
+  setOnlyCollection,
+  clearTrackedCollections,
   addTrackedCollection,
   removeTrackedCollection,
 } from "./settings.js";
@@ -87,6 +89,22 @@ export const settingsCommand = new SlashCommandBuilder()
       .addSubcommand((sub) =>
         sub.setName("list").setDescription("List all tracked NFT collections")
       )
+      .addSubcommand((sub) =>
+        sub
+          .setName("set")
+          .setDescription("Lock the bot to one collection only — clears any other filters")
+          .addStringOption((opt) =>
+            opt
+              .setName("address")
+              .setDescription("The NFT contract address to track exclusively (0x...)")
+              .setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName("clear")
+          .setDescription("Remove all collection filters — bot will announce listings from every collection")
+      )
   );
 
 export async function registerCommands(client: Client): Promise<void> {
@@ -131,6 +149,10 @@ export async function handleInteraction(
       await handleRemoveCollection(interaction, state);
     } else if (subgroup === "collection" && sub === "list") {
       await handleListCollections(interaction);
+    } else if (subgroup === "collection" && sub === "set") {
+      await handleSetOnlyCollection(interaction, state);
+    } else if (subgroup === "collection" && sub === "clear") {
+      await handleClearCollections(interaction, state);
     } else {
       await interaction.editReply("Unknown command.");
     }
@@ -292,4 +314,42 @@ async function handleListCollections(
   }
 
   await interaction.editReply({ embeds: [embed] });
+}
+
+async function handleSetOnlyCollection(
+  interaction: ChatInputCommandInteraction,
+  state: ListenerState
+): Promise<void> {
+  const address = interaction.options.getString("address", true).trim();
+
+  if (!ethers.isAddress(address)) {
+    await interaction.editReply(
+      `❌ \`${address}\` is not a valid Cronos contract address. Make sure it starts with \`0x\` and is 42 characters long.`
+    );
+    return;
+  }
+
+  const checksummed = ethers.getAddress(address);
+  setOnlyCollection(checksummed);
+
+  state.trackedCollections.clear();
+  state.trackedCollections.add(checksummed.toLowerCase());
+
+  await interaction.editReply(
+    `✅ Bot is now locked to **one collection only**:\n\`${checksummed}\`\n\nAll listings from other collections will be ignored.`
+  );
+  console.log(`[commands] Collection locked to: ${checksummed}`);
+}
+
+async function handleClearCollections(
+  interaction: ChatInputCommandInteraction,
+  state: ListenerState
+): Promise<void> {
+  clearTrackedCollections();
+  state.trackedCollections.clear();
+
+  await interaction.editReply(
+    `✅ Collection filter cleared. The bot will now announce listings from **all collections** on the marketplace.`
+  );
+  console.log(`[commands] Collection filter cleared — tracking all collections`);
 }

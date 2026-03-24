@@ -67,6 +67,20 @@ export function setCooldown(hours: number): BotSettings {
   return s;
 }
 
+export function setOnlyCollection(address: string): BotSettings {
+  const s = loadSettings();
+  s.trackedCollections = [address];
+  saveSettings(s);
+  return s;
+}
+
+export function clearTrackedCollections(): BotSettings {
+  const s = loadSettings();
+  s.trackedCollections = [];
+  saveSettings(s);
+  return s;
+}
+
 export function addTrackedCollection(address: string): { added: boolean; settings: BotSettings } {
   const s = loadSettings();
   const norm = address.toLowerCase();
