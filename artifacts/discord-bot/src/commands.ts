@@ -198,7 +198,14 @@ export async function handleInteraction(
   const subgroup = interaction.options.getSubcommandGroup(false);
   const sub = interaction.options.getSubcommand(false);
 
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  console.log(`[commands] [${guildId}] /${interaction.commandName} ${subgroup ?? ""} ${sub ?? ""}`.trim());
+
+  try {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  } catch (err) {
+    console.error(`[commands] [${guildId}] deferReply failed:`, err);
+    return;
+  }
 
   const guildState = ensureGuildState(guildId, guildStates);
 

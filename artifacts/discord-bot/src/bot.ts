@@ -105,7 +105,18 @@ export async function startBot(): Promise<void> {
 
   client.on("interactionCreate", async (interaction) => {
     if (!interaction.isChatInputCommand()) return;
-    await handleInteraction(interaction, guildStates);
+    try {
+      await handleInteraction(interaction, guildStates);
+    } catch (err) {
+      console.error("[bot] Unhandled error in interactionCreate:", err);
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          await interaction.reply({ content: "An unexpected error occurred.", flags: 64 });
+        } else if (interaction.deferred) {
+          await interaction.editReply("An unexpected error occurred.");
+        }
+      } catch {}
+    }
   });
 
   client.on("error", (err) => {
