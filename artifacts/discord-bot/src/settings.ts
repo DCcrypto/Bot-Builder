@@ -9,6 +9,7 @@ const SETTINGS_FILE = join(DATA_DIR, "settings.json");
 export interface BotSettings {
   channelListingsId: string | null;
   channelMintsId: string | null;
+  mintContractAddress: string | null;
   trackedCollections: string[];
   cooldownHours: number;
 }
@@ -16,6 +17,7 @@ export interface BotSettings {
 const DEFAULT_SETTINGS: BotSettings = {
   channelListingsId: process.env["DISCORD_CHANNEL_LISTINGS_ID"] ?? null,
   channelMintsId: null,
+  mintContractAddress: null,
   trackedCollections: [],
   cooldownHours: 6,
 };
@@ -38,6 +40,7 @@ export function loadSettings(): BotSettings {
     return {
       channelListingsId: parsed.channelListingsId ?? DEFAULT_SETTINGS.channelListingsId,
       channelMintsId: parsed.channelMintsId ?? null,
+      mintContractAddress: parsed.mintContractAddress ?? null,
       trackedCollections: parsed.trackedCollections ?? [],
       cooldownHours: typeof parsed.cooldownHours === "number" ? parsed.cooldownHours : DEFAULT_SETTINGS.cooldownHours,
     };
@@ -66,6 +69,20 @@ export function setListingsChannel(id: string | null): BotSettings {
 export function setMintsChannel(id: string | null): BotSettings {
   const s = loadSettings();
   s.channelMintsId = id;
+  saveSettings(s);
+  return s;
+}
+
+export function setMintContract(address: string): BotSettings {
+  const s = loadSettings();
+  s.mintContractAddress = address;
+  saveSettings(s);
+  return s;
+}
+
+export function clearMintContract(): BotSettings {
+  const s = loadSettings();
+  s.mintContractAddress = null;
   saveSettings(s);
   return s;
 }

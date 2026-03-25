@@ -6,6 +6,7 @@ import { loadSeenIds, markSeen } from "./seenListings.js";
 export interface ListenerState {
   listingsChannel: TextChannel | null;
   mintsChannel: TextChannel | null;
+  mintContractAddress: string | null;
   trackedCollections: Set<string>;
   relistCooldownMs: number;
 }

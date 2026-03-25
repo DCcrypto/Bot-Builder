@@ -14,6 +14,8 @@ import {
   getSettings,
   setListingsChannel,
   setMintsChannel,
+  setMintContract,
+  clearMintContract,
   setCooldown,
   setOnlyCollection,
   clearTrackedCollections,
@@ -71,6 +73,25 @@ export const settingsCommand = new SlashCommandBuilder()
           .setMinValue(0)
           .setMaxValue(168)
           .setRequired(true)
+      )
+  )
+  .addSubcommandGroup((group) =>
+    group
+      .setName("mint")
+      .setDescription("Configure the live mint tracker")
+      .addSubcommand((sub) =>
+        sub
+          .setName("set")
+          .setDescription("Set the contract address to watch for live mints")
+          .addStringOption((opt) =>
+            opt
+              .setName("address")
+              .setDescription("The NFT contract address on Cronos to track mints for (0x...)")
+              .setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub.setName("clear").setDescription("Stop tracking mints (clear the mint contract)")
       )
   )
   .addSubcommandGroup((group) =>
@@ -158,6 +179,10 @@ export async function handleInteraction(
       await handleSetListingsChannel(interaction, state);
     } else if (subgroup === "channel" && sub === "mints") {
       await handleSetMintsChannel(interaction, state);
+    } else if (subgroup === "mint" && sub === "set") {
+      await handleSetMintContract(interaction, state);
+    } else if (subgroup === "mint" && sub === "clear") {
+      await handleClearMintContract(interaction, state);
     } else if (subgroup === "collection" && sub === "add") {
       await handleAddCollection(interaction, state);
     } else if (subgroup === "collection" && sub === "remove") {
@@ -185,23 +210,23 @@ async function handleStatus(
 
   const listingsCh = s.channelListingsId ? `<#${s.channelListingsId}>` : "Not set";
   const mintsCh = s.channelMintsId ? `<#${s.channelMintsId}>` : "Not set";
+  const mintContract = s.mintContractAddress
+    ? `\`${s.mintContractAddress}\``
+    : "Not set — use `/settings mint set <address>`";
   const collections =
     s.trackedCollections.length > 0
       ? s.trackedCollections.map((a) => `\`${a}\``).join("\n")
       : "All collections (no filter)";
   const cooldownHours = s.cooldownHours ?? 6;
   const cooldownDisplay = cooldownHours === 0 ? "Disabled" : `${cooldownHours}h`;
-  const mintNote =
-    s.trackedCollections.length === 1
-      ? ""
-      : "\n⚠️ *Mint tracking requires exactly one collection to be set via `/settings collection set`*";
 
   const embed = new EmbedBuilder()
     .setColor(0x9b59b6)
     .setTitle("⚙️ MANE NFT Bot — Current Settings")
     .addFields(
       { name: "📋 Listings Channel", value: listingsCh, inline: false },
-      { name: "🪙 Mints Channel", value: mintsCh + mintNote, inline: false },
+      { name: "🪙 Mints Channel", value: mintsCh, inline: false },
+      { name: "🔎 Mint Contract", value: mintContract, inline: false },
       { name: "⏱️ Relist Cooldown", value: cooldownDisplay, inline: false },
       { name: "🎨 Tracked Collections", value: collections, inline: false }
     )
@@ -221,6 +246,40 @@ async function handleSetCooldown(
   const display = hours === 0 ? "disabled (all relists will be announced)" : `${hours} hour${hours === 1 ? "" : "s"}`;
   await interaction.editReply(`✅ Relist cooldown set to **${display}**. Takes effect on the next poll.`);
   console.log(`[commands] Relist cooldown updated to ${hours}h`);
+}
+
+async function handleSetMintContract(
+  interaction: ChatInputCommandInteraction,
+  state: ListenerState
+): Promise<void> {
+  const address = interaction.options.getString("address", true).trim();
+
+  if (!ethers.isAddress(address)) {
+    await interaction.editReply(
+      `❌ \`${address}\` is not a valid Cronos contract address. Make sure it starts with \`0x\` and is 42 characters long.`
+    );
+    return;
+  }
+
+  const checksummed = ethers.getAddress(address);
+  setMintContract(checksummed);
+  state.mintContractAddress = checksummed.toLowerCase();
+
+  await interaction.editReply(
+    `✅ Mint tracker set to contract \`${checksummed}\`.\n\nThe bot will now watch for live mints on this contract and post them to the mints channel.${state.mintsChannel ? "" : "\n\n💡 Don't forget to set a mints channel with `/settings channel mints`."}`
+  );
+  console.log(`[commands] Mint contract set to: ${checksummed}`);
+}
+
+async function handleClearMintContract(
+  interaction: ChatInputCommandInteraction,
+  state: ListenerState
+): Promise<void> {
+  clearMintContract();
+  state.mintContractAddress = null;
+
+  await interaction.editReply("✅ Mint tracker cleared. The bot will no longer watch for new mints.");
+  console.log("[commands] Mint contract cleared");
 }
 
 async function handleSetMintsChannel(

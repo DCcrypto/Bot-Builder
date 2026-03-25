@@ -72,8 +72,7 @@ async function fetchMetadata(uri: string): Promise<Record<string, unknown>> {
 }
 
 function getTrackedContract(state: ListenerState): string | null {
-  if (state.trackedCollections.size !== 1) return null;
-  return [...state.trackedCollections][0] ?? null;
+  return state.mintContractAddress ?? null;
 }
 
 function sleep(ms: number): Promise<void> {

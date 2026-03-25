@@ -28,6 +28,7 @@ export async function startBot(): Promise<void> {
   const state: ListenerState = {
     listingsChannel: null,
     mintsChannel: null,
+    mintContractAddress: null,
     trackedCollections: new Set(),
     relistCooldownMs: 6 * 60 * 60 * 1000,
   };
@@ -54,6 +55,13 @@ export async function startBot(): Promise<void> {
       }
     } else {
       console.warn("[bot] No mints channel set. Use /settings channel mints to configure.");
+    }
+
+    if (settings.mintContractAddress) {
+      state.mintContractAddress = settings.mintContractAddress.toLowerCase();
+      console.log(`[bot] Mint tracker contract: ${settings.mintContractAddress}`);
+    } else {
+      console.warn("[bot] No mint contract set. Use /settings mint set to configure.");
     }
 
     state.relistCooldownMs = (settings.cooldownHours ?? 6) * 60 * 60 * 1000;
