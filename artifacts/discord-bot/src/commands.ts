@@ -4,6 +4,7 @@ import {
   Routes,
   type ChatInputCommandInteraction,
   type Client,
+  type TextChannel,
   PermissionFlagsBits,
   EmbedBuilder,
   ChannelType,
@@ -31,6 +32,9 @@ export const settingsCommand = new SlashCommandBuilder()
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .addSubcommand((sub) =>
     sub.setName("status").setDescription("Show current bot settings")
+  )
+  .addSubcommand((sub) =>
+    sub.setName("refresh").setDescription("Re-read settings and reconnect channels — fixes stale bot state without a full restart")
   )
   .addSubcommandGroup((group) =>
     group
@@ -212,6 +216,8 @@ export async function handleInteraction(
   try {
     if (!subgroup && sub === "status") {
       await handleStatus(interaction, guildId, guildState);
+    } else if (!subgroup && sub === "refresh") {
+      await handleRefresh(interaction, guildId, guildState);
     } else if (!subgroup && sub === "cooldown") {
       await handleSetCooldown(interaction, guildId, guildState);
     } else if (subgroup === "channel" && sub === "listings") {
@@ -273,6 +279,50 @@ async function handleStatus(
     .setTimestamp();
 
   await interaction.editReply({ embeds: [embed] });
+}
+
+async function handleRefresh(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  guildState: GuildState
+): Promise<void> {
+  const s = getGuildSettings(guildId);
+
+  let listingsChannel: TextChannel | null = null;
+  let mintsChannel: TextChannel | null = null;
+
+  if (s.channelListingsId) {
+    try {
+      const ch = await interaction.client.channels.fetch(s.channelListingsId);
+      if (ch && ch.isTextBased()) listingsChannel = ch as TextChannel;
+    } catch {}
+  }
+
+  if (s.channelMintsId) {
+    try {
+      const ch = await interaction.client.channels.fetch(s.channelMintsId);
+      if (ch && ch.isTextBased()) mintsChannel = ch as TextChannel;
+    } catch {}
+  }
+
+  guildState.listingsChannel = listingsChannel;
+  guildState.mintsChannel = mintsChannel;
+  guildState.mintContractAddress = s.mintContractAddress?.toLowerCase() ?? null;
+  guildState.trackedCollections = new Set(s.trackedCollections.map((a) => a.toLowerCase()));
+  guildState.relistCooldownMs = (s.cooldownHours ?? 6) * 60 * 60 * 1000;
+  guildState.seenListingIds = loadSeenIds(guildId);
+
+  const lines: string[] = [];
+  lines.push(listingsChannel ? `✅ Listings → <#${listingsChannel.id}>` : "⚠️ Listings channel: not set");
+  lines.push(mintsChannel ? `✅ Mints → <#${mintsChannel.id}>` : "⚠️ Mints channel: not set");
+  lines.push(
+    s.mintContractAddress
+      ? `✅ Mint contract: \`${s.mintContractAddress}\``
+      : "⚠️ Mint contract: not set"
+  );
+
+  await interaction.editReply(`🔄 **Bot state refreshed.**\n\n${lines.join("\n")}`);
+  console.log(`[commands] [${guildId}] State refreshed`);
 }
 
 async function handleSetCooldown(
