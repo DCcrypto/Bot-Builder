@@ -9,7 +9,7 @@
   "1399401165770457199": {
     "channelListingsId": null,
     "channelMintsId": "1399401166659653652",
-    "mintContractAddress": null,
+    "mintContractAddress": "0x4BC07aE8FAB8614820Eb6A0c5c71b30f5f4447cB",
     "trackedCollections": [],
     "cooldownHours": 6
   }

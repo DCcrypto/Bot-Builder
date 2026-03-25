@@ -104,9 +104,6 @@ export async function startBot(): Promise<void> {
   });
 
   client.on("interactionCreate", async (interaction) => {
-    const gId = interaction.guildId ?? "DM";
-    const name = interaction.isChatInputCommand() ? interaction.commandName : `type:${interaction.type}`;
-    console.log(`[bot] interactionCreate guild=${gId} cmd=${name}`);
     if (!interaction.isChatInputCommand()) return;
     try {
       await handleInteraction(interaction, guildStates);
