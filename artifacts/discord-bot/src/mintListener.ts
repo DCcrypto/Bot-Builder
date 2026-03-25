@@ -1,7 +1,6 @@
-import type { TextChannel } from "discord.js";
 import { ethers } from "ethers";
 import { buildMintEmbed } from "./embeds.js";
-import type { ListenerState } from "./listener.js";
+import type { GuildState } from "./listener.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -14,7 +13,7 @@ const CRONOS_RPC = "https://evm.cronos.org";
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const POLL_INTERVAL_MS = 15_000;
 const MAX_BLOCK_RANGE = 999;
-const STARTUP_BLOCK_LOOKBACK = 50; // ~5 min of history on first run
+const STARTUP_BLOCK_LOOKBACK = 50;
 
 const ERC721_ABI = [
   "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
@@ -71,102 +70,111 @@ async function fetchMetadata(uri: string): Promise<Record<string, unknown>> {
   }
 }
 
-function getTrackedContract(state: ListenerState): string | null {
-  return state.mintContractAddress ?? null;
-}
-
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-export async function startMintListener(state: ListenerState): Promise<void> {
-  console.log("[mint] Mint listener started — waiting for a single collection to be set");
+async function pollContract(
+  contractAddress: string,
+  guilds: GuildState[],
+  provider: ethers.JsonRpcProvider,
+  lastBlocks: Map<string, number>
+): Promise<void> {
+  try {
+    const currentBlock = await provider.getBlockNumber();
 
-  const provider = new ethers.JsonRpcProvider(CRONOS_RPC);
-  let lastContractAddress: string | null = null;
-  let lastBlock: number | null = null;
-
-  async function poll(): Promise<void> {
-    const contractAddress = getTrackedContract(state);
-
-    if (!contractAddress) return;
-
-    const channel: TextChannel | null = state.mintsChannel;
-    if (!channel) return;
-
-    if (contractAddress !== lastContractAddress) {
-      lastContractAddress = contractAddress;
-      lastBlock = null;
-      console.log(`[mint] Tracking mints for contract: ${contractAddress}`);
+    let lastBlock = lastBlocks.get(contractAddress) ?? null;
+    if (lastBlock === null) {
+      const saved = loadLastBlock(contractAddress);
+      lastBlock = saved ?? currentBlock - STARTUP_BLOCK_LOOKBACK;
+      console.log(`[mint] Starting ${contractAddress} from block ${lastBlock} (current: ${currentBlock})`);
     }
 
-    try {
-      const currentBlock = await provider.getBlockNumber();
+    if (currentBlock <= lastBlock) return;
 
-      if (lastBlock === null) {
-        const saved = loadLastBlock(contractAddress);
-        lastBlock = saved ?? currentBlock - STARTUP_BLOCK_LOOKBACK;
-        console.log(`[mint] Starting from block ${lastBlock} (current: ${currentBlock})`);
+    const contract = new ethers.Contract(contractAddress, ERC721_ABI, provider);
+    const transferFilter = contract.filters["Transfer"](ZERO_ADDRESS);
+
+    const fromBlock = lastBlock + 1;
+    const toBlock = Math.min(currentBlock, fromBlock + MAX_BLOCK_RANGE);
+
+    const events = await contract.queryFilter(transferFilter, fromBlock, toBlock);
+
+    let collectionName = "";
+    if (events.length > 0) {
+      try { collectionName = (await contract["name"]()) as string; } catch {}
+    }
+
+    for (const event of events) {
+      if (!("args" in event)) continue;
+      const log = event as ethers.EventLog;
+      const to = log.args[1] as string;
+      const tokenId = (log.args[2] as bigint).toString();
+
+      let tokenUri: string;
+      try {
+        tokenUri = (await contract["tokenURI"](tokenId)) as string;
+      } catch {
+        console.warn(`[mint] No tokenURI for #${tokenId} — skipping`);
+        continue;
       }
 
-      if (currentBlock <= lastBlock) return;
-
-      const contract = new ethers.Contract(contractAddress, ERC721_ABI, provider);
-      const transferFilter = contract.filters["Transfer"](ZERO_ADDRESS);
-
-      const fromBlock = lastBlock + 1;
-      const toBlock = Math.min(currentBlock, fromBlock + MAX_BLOCK_RANGE);
-
-      const events = await contract.queryFilter(transferFilter, fromBlock, toBlock);
-
-      let collectionName = "";
-      if (events.length > 0) {
-        try { collectionName = (await contract["name"]()) as string; } catch {}
+      let metadata: Record<string, unknown>;
+      try {
+        metadata = await fetchMetadata(tokenUri);
+      } catch (e) {
+        console.warn(`[mint] Could not fetch metadata for #${tokenId}:`, e);
+        continue;
       }
 
-      for (const event of events) {
-        if (!("args" in event)) continue;
-        const log = event as ethers.EventLog;
-        const to = log.args[1] as string;
-        const tokenId = (log.args[2] as bigint).toString();
+      const embed = buildMintEmbed({
+        tokenId,
+        owner: to,
+        collectionName,
+        metadata,
+        txHash: log.transactionHash,
+        contractAddress,
+      });
 
+      for (const state of guilds) {
+        if (!state.mintsChannel) continue;
         try {
-          let tokenUri: string;
-          try {
-            tokenUri = (await contract["tokenURI"](tokenId)) as string;
-          } catch {
-            console.warn(`[mint] No tokenURI for #${tokenId} — skipping`);
-            continue;
-          }
-
-          let metadata: Record<string, unknown>;
-          try {
-            metadata = await fetchMetadata(tokenUri);
-          } catch (e) {
-            console.warn(`[mint] Could not fetch metadata for #${tokenId}:`, e);
-            continue;
-          }
-
-          const embed = buildMintEmbed({
-            tokenId,
-            owner: to,
-            collectionName,
-            metadata,
-            txHash: log.transactionHash,
-            contractAddress,
-          });
-
-          await channel.send({ embeds: [embed] });
-          console.log(`[mint] Posted mint #${tokenId} → #${channel.name} (${channel.id})`);
+          await state.mintsChannel.send({ embeds: [embed] });
+          console.log(
+            `[mint] [${state.guildId}] Posted mint #${tokenId} → #${state.mintsChannel.name}`
+          );
         } catch (err) {
-          console.error(`[mint] Error posting mint #${tokenId}:`, err);
+          console.error(`[mint] [${state.guildId}] Error posting mint #${tokenId}:`, err);
         }
       }
+    }
 
-      lastBlock = toBlock;
-      saveLastBlock(contractAddress, lastBlock);
-    } catch (err) {
-      console.error("[mint] Poll error:", err);
+    lastBlocks.set(contractAddress, toBlock);
+    saveLastBlock(contractAddress, toBlock);
+  } catch (err) {
+    console.error(`[mint] Poll error for ${contractAddress}:`, err);
+  }
+}
+
+export async function startMintListener(guildStates: Map<string, GuildState>): Promise<void> {
+  console.log("[mint] Mint listener started (multi-guild)");
+
+  const provider = new ethers.JsonRpcProvider(CRONOS_RPC);
+  const lastBlocks = new Map<string, number>();
+
+  async function poll(): Promise<void> {
+    const contractToGuilds = new Map<string, GuildState[]>();
+
+    for (const state of guildStates.values()) {
+      const contract = state.mintContractAddress;
+      if (!contract || !state.mintsChannel) continue;
+      const list = contractToGuilds.get(contract) ?? [];
+      list.push(state);
+      contractToGuilds.set(contract, list);
+    }
+
+    for (const [contractAddress, guilds] of contractToGuilds) {
+      await pollContract(contractAddress, guilds, provider, lastBlocks);
     }
   }
 

@@ -4,9 +4,9 @@ import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = join(__dirname, "..", "data");
-const SETTINGS_FILE = join(DATA_DIR, "settings.json");
+const GUILD_SETTINGS_FILE = join(DATA_DIR, "guild-settings.json");
 
-export interface BotSettings {
+export interface GuildSettings {
   channelListingsId: string | null;
   channelMintsId: string | null;
   mintContractAddress: string | null;
@@ -14,8 +14,10 @@ export interface BotSettings {
   cooldownHours: number;
 }
 
-const DEFAULT_SETTINGS: BotSettings = {
-  channelListingsId: process.env["DISCORD_CHANNEL_LISTINGS_ID"] ?? null,
+type GuildSettingsStore = Record<string, GuildSettings>;
+
+const DEFAULT_GUILD_SETTINGS: GuildSettings = {
+  channelListingsId: null,
   channelMintsId: null,
   mintContractAddress: null,
   trackedCollections: [],
@@ -23,108 +25,112 @@ const DEFAULT_SETTINGS: BotSettings = {
 };
 
 function ensureDataDir(): void {
-  if (!existsSync(DATA_DIR)) {
-    mkdirSync(DATA_DIR, { recursive: true });
-  }
+  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 }
 
-export function loadSettings(): BotSettings {
+function loadStore(): GuildSettingsStore {
   ensureDataDir();
-  if (!existsSync(SETTINGS_FILE)) {
-    writeFileSync(SETTINGS_FILE, JSON.stringify(DEFAULT_SETTINGS, null, 2));
-    return { ...DEFAULT_SETTINGS };
-  }
+  if (!existsSync(GUILD_SETTINGS_FILE)) return {};
   try {
-    const raw = readFileSync(SETTINGS_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as Partial<BotSettings>;
-    return {
-      channelListingsId: parsed.channelListingsId ?? DEFAULT_SETTINGS.channelListingsId,
-      channelMintsId: parsed.channelMintsId ?? null,
-      mintContractAddress: parsed.mintContractAddress ?? null,
-      trackedCollections: parsed.trackedCollections ?? [],
-      cooldownHours: typeof parsed.cooldownHours === "number" ? parsed.cooldownHours : DEFAULT_SETTINGS.cooldownHours,
-    };
+    return JSON.parse(readFileSync(GUILD_SETTINGS_FILE, "utf-8")) as GuildSettingsStore;
   } catch {
-    console.warn("[settings] Failed to parse settings file, using defaults");
-    return { ...DEFAULT_SETTINGS };
+    console.warn("[settings] Failed to parse guild-settings.json, starting fresh");
+    return {};
   }
 }
 
-export function saveSettings(settings: BotSettings): void {
+function saveStore(store: GuildSettingsStore): void {
   ensureDataDir();
-  writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+  writeFileSync(GUILD_SETTINGS_FILE, JSON.stringify(store, null, 2));
 }
 
-export function getSettings(): BotSettings {
-  return loadSettings();
+export function getGuildSettings(guildId: string): GuildSettings {
+  const store = loadStore();
+  const saved = store[guildId];
+  if (!saved) return { ...DEFAULT_GUILD_SETTINGS };
+  return {
+    channelListingsId: saved.channelListingsId ?? null,
+    channelMintsId: saved.channelMintsId ?? null,
+    mintContractAddress: saved.mintContractAddress ?? null,
+    trackedCollections: saved.trackedCollections ?? [],
+    cooldownHours: typeof saved.cooldownHours === "number" ? saved.cooldownHours : DEFAULT_GUILD_SETTINGS.cooldownHours,
+  };
 }
 
-export function setListingsChannel(id: string | null): BotSettings {
-  const s = loadSettings();
-  s.channelListingsId = id;
-  saveSettings(s);
+export function saveGuildSettings(guildId: string, settings: GuildSettings): void {
+  const store = loadStore();
+  store[guildId] = settings;
+  saveStore(store);
+}
+
+export function removeGuildSettings(guildId: string): void {
+  const store = loadStore();
+  delete store[guildId];
+  saveStore(store);
+}
+
+export function getAllGuildIds(): string[] {
+  return Object.keys(loadStore());
+}
+
+function updateGuild(guildId: string, updater: (s: GuildSettings) => void): GuildSettings {
+  const s = getGuildSettings(guildId);
+  updater(s);
+  saveGuildSettings(guildId, s);
   return s;
 }
 
-export function setMintsChannel(id: string | null): BotSettings {
-  const s = loadSettings();
-  s.channelMintsId = id;
-  saveSettings(s);
-  return s;
+export function setListingsChannel(guildId: string, id: string | null): GuildSettings {
+  return updateGuild(guildId, (s) => { s.channelListingsId = id; });
 }
 
-export function setMintContract(address: string): BotSettings {
-  const s = loadSettings();
-  s.mintContractAddress = address;
-  saveSettings(s);
-  return s;
+export function setMintsChannel(guildId: string, id: string | null): GuildSettings {
+  return updateGuild(guildId, (s) => { s.channelMintsId = id; });
 }
 
-export function clearMintContract(): BotSettings {
-  const s = loadSettings();
-  s.mintContractAddress = null;
-  saveSettings(s);
-  return s;
+export function setMintContract(guildId: string, address: string): GuildSettings {
+  return updateGuild(guildId, (s) => { s.mintContractAddress = address; });
 }
 
-export function setCooldown(hours: number): BotSettings {
-  const s = loadSettings();
-  s.cooldownHours = hours;
-  saveSettings(s);
-  return s;
+export function clearMintContract(guildId: string): GuildSettings {
+  return updateGuild(guildId, (s) => { s.mintContractAddress = null; });
 }
 
-export function setOnlyCollection(address: string): BotSettings {
-  const s = loadSettings();
-  s.trackedCollections = [address];
-  saveSettings(s);
-  return s;
+export function setCooldown(guildId: string, hours: number): GuildSettings {
+  return updateGuild(guildId, (s) => { s.cooldownHours = hours; });
 }
 
-export function clearTrackedCollections(): BotSettings {
-  const s = loadSettings();
-  s.trackedCollections = [];
-  saveSettings(s);
-  return s;
+export function setOnlyCollection(guildId: string, address: string): GuildSettings {
+  return updateGuild(guildId, (s) => { s.trackedCollections = [address]; });
 }
 
-export function addTrackedCollection(address: string): { added: boolean; settings: BotSettings } {
-  const s = loadSettings();
+export function clearTrackedCollections(guildId: string): GuildSettings {
+  return updateGuild(guildId, (s) => { s.trackedCollections = []; });
+}
+
+export function addTrackedCollection(
+  guildId: string,
+  address: string
+): { added: boolean; settings: GuildSettings } {
+  const s = getGuildSettings(guildId);
   const norm = address.toLowerCase();
   if (s.trackedCollections.map((a) => a.toLowerCase()).includes(norm)) {
     return { added: false, settings: s };
   }
   s.trackedCollections.push(address);
-  saveSettings(s);
+  saveGuildSettings(guildId, s);
   return { added: true, settings: s };
 }
 
-export function removeTrackedCollection(address: string): { removed: boolean; settings: BotSettings } {
-  const s = loadSettings();
+export function removeTrackedCollection(
+  guildId: string,
+  address: string
+): { removed: boolean; settings: GuildSettings } {
+  const s = getGuildSettings(guildId);
   const norm = address.toLowerCase();
   const before = s.trackedCollections.length;
   s.trackedCollections = s.trackedCollections.filter((a) => a.toLowerCase() !== norm);
   const removed = s.trackedCollections.length < before;
-  if (removed) saveSettings(s);
+  if (removed) saveGuildSettings(guildId, s);
   return { removed, settings: s };
 }

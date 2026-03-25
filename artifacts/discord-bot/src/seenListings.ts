@@ -13,36 +13,41 @@ interface SeenEntry {
   seenAt: string;
 }
 
+type SeenStore = Record<string, SeenEntry[]>;
+
 function ensureDataDir(): void {
   if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 }
 
-export function loadSeenIds(): Set<string> {
+function loadStore(): SeenStore {
   ensureDataDir();
-  if (!existsSync(SEEN_FILE)) return new Set();
+  if (!existsSync(SEEN_FILE)) return {};
   try {
-    const raw = readFileSync(SEEN_FILE, "utf-8");
-    const entries = JSON.parse(raw) as SeenEntry[];
-    const cutoff = Date.now() - MAX_AGE_MS;
-    return new Set(
-      entries.filter((e) => new Date(e.seenAt).getTime() > cutoff).map((e) => e.id)
-    );
+    const raw = JSON.parse(readFileSync(SEEN_FILE, "utf-8")) as unknown;
+    if (Array.isArray(raw)) return {};
+    return raw as SeenStore;
   } catch {
-    return new Set();
+    return {};
   }
 }
 
-export function markSeen(ids: string[]): void {
+function saveStore(store: SeenStore): void {
   ensureDataDir();
-  let existing: SeenEntry[] = [];
-  if (existsSync(SEEN_FILE)) {
-    try {
-      existing = JSON.parse(readFileSync(SEEN_FILE, "utf-8")) as SeenEntry[];
-    } catch {
-      existing = [];
-    }
-  }
+  writeFileSync(SEEN_FILE, JSON.stringify(store, null, 2));
+}
 
+export function loadSeenIds(guildId: string): Set<string> {
+  const store = loadStore();
+  const entries = store[guildId] ?? [];
+  const cutoff = Date.now() - MAX_AGE_MS;
+  return new Set(
+    entries.filter((e) => new Date(e.seenAt).getTime() > cutoff).map((e) => e.id)
+  );
+}
+
+export function markSeen(guildId: string, ids: string[]): void {
+  const store = loadStore();
+  const existing = store[guildId] ?? [];
   const now = new Date().toISOString();
   const existingIds = new Set(existing.map((e) => e.id));
   for (const id of ids) {
@@ -50,9 +55,7 @@ export function markSeen(ids: string[]): void {
       existing.push({ id, seenAt: now });
     }
   }
-
   const cutoff = Date.now() - MAX_AGE_MS;
-  existing = existing.filter((e) => new Date(e.seenAt).getTime() > cutoff);
-
-  writeFileSync(SEEN_FILE, JSON.stringify(existing, null, 2));
+  store[guildId] = existing.filter((e) => new Date(e.seenAt).getTime() > cutoff);
+  saveStore(store);
 }

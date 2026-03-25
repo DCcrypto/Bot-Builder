@@ -1,14 +1,17 @@
 import type { TextChannel } from "discord.js";
 import { buildListingEmbed } from "./embeds.js";
 import { config } from "./config.js";
-import { loadSeenIds, markSeen } from "./seenListings.js";
+import { markSeen } from "./seenListings.js";
 
-export interface ListenerState {
+export interface GuildState {
+  guildId: string;
   listingsChannel: TextChannel | null;
   mintsChannel: TextChannel | null;
   mintContractAddress: string | null;
   trackedCollections: Set<string>;
   relistCooldownMs: number;
+  seenListingIds: Set<string>;
+  recentNfts: Map<string, number>;
 }
 
 export interface ApiListing {
@@ -29,7 +32,7 @@ export interface ApiListing {
   listingType: string;
 }
 
-function isTrackedCollection(state: ListenerState, nftContract: string): boolean {
+function isTrackedCollection(state: GuildState, nftContract: string): boolean {
   if (state.trackedCollections.size === 0) return true;
   return state.trackedCollections.has(nftContract.toLowerCase());
 }
@@ -55,91 +58,80 @@ async function fetchListings(): Promise<ApiListing[]> {
   return (await res.json()) as ApiListing[];
 }
 
-// Default fallback — overridden at runtime via state.relistCooldownMs
-const DEFAULT_COOLDOWN_MS = 6 * 60 * 60 * 1000; // 6 hours
+const DEFAULT_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
-export async function startListener(state: ListenerState): Promise<void> {
-  console.log("[listener] Starting MANE NFT listener (listings only)");
-
-  const announcedListingIds: Set<string> = loadSeenIds();
-  // Tracks the last time each NFT (by contract:tokenId) was announced
-  const recentNfts = new Map<string, number>();
-
-  console.log(`[listener] Loaded ${announcedListingIds.size} previously seen listing IDs`);
+export async function startListener(guildStates: Map<string, GuildState>): Promise<void> {
+  console.log("[listener] Starting MANE NFT listener (multi-guild)");
 
   function nftKey(listing: ApiListing): string {
     return `${listing.nftContractAddress.toLowerCase()}:${listing.tokenId}`;
   }
 
   async function pollNewListings(): Promise<void> {
+    if (guildStates.size === 0) return;
+
+    let listings: ApiListing[];
     try {
-      const listings = await fetchListings();
+      listings = await fetchListings();
+    } catch (err) {
+      console.error("[listener] API listings poll error:", err);
+      return;
+    }
+
+    for (const [guildId, state] of guildStates) {
+      if (!state.listingsChannel) continue;
 
       for (const listing of listings) {
-        if (announcedListingIds.has(listing.id)) continue;
+        if (state.seenListingIds.has(listing.id)) continue;
 
-        // Permanently discard sold listings and untracked collections
         if (listing.status === "sold" || !isTrackedCollection(state, listing.nftContractAddress)) {
-          announcedListingIds.add(listing.id);
-          markSeen([listing.id]);
+          state.seenListingIds.add(listing.id);
+          markSeen(guildId, [listing.id]);
           continue;
         }
 
-        // Non-active (e.g. "pending" awaiting chain confirmation) — retry next poll, don't mark seen yet
-        if (listing.status !== "active") {
-          continue;
-        }
+        if (listing.status !== "active") continue;
 
-        // Suppress rapid relisting of the same physical NFT (only when cooldown > 0)
         const cooldownMs = state.relistCooldownMs ?? DEFAULT_COOLDOWN_MS;
         if (cooldownMs > 0) {
           const key = nftKey(listing);
-          const lastAt = recentNfts.get(key);
+          const lastAt = state.recentNfts.get(key);
           if (lastAt !== undefined && Date.now() - lastAt < cooldownMs) {
-            console.log(`[listener] Skipped relist within cooldown: ${listing.nftName ?? listing.id}`);
-            announcedListingIds.add(listing.id);
-            markSeen([listing.id]);
+            console.log(`[listener] [${guildId}] Cooldown skip: ${listing.nftName ?? listing.id}`);
+            state.seenListingIds.add(listing.id);
+            markSeen(guildId, [listing.id]);
             continue;
           }
         }
 
         const listingUrl = `${config.site.baseUrl}/marketplace`;
         const embed = buildListingEmbed({
-          nftName:            listing.nftName,
-          nftImage:           listing.nftImage,
-          collectionName:     listing.nftContractName,
-          tokenId:            listing.tokenId,
-          seller:             listing.sellerAddress,
-          price:              listing.price,
+          nftName: listing.nftName,
+          nftImage: listing.nftImage,
+          collectionName: listing.nftContractName,
+          tokenId: listing.tokenId,
+          seller: listing.sellerAddress,
+          price: listing.price,
           paymentTokenSymbol: listing.paymentTokenSymbol,
           listingUrl,
         });
 
-        const channel = state.listingsChannel;
-        if (!channel) {
-          // No channel configured yet — skip without marking seen so it's retried once one is set
-          console.warn("[listener] No listings channel set — use /settings channel listings");
-          continue;
-        }
-
         try {
-          await channel.send({ embeds: [embed] });
-          console.log(`[listener] Posted listing: ${listing.nftName ?? listing.id} → #${channel.name} (${channel.id})`);
+          await state.listingsChannel.send({ embeds: [embed] });
+          console.log(
+            `[listener] [${guildId}] Posted: ${listing.nftName ?? listing.id} → #${state.listingsChannel.name}`
+          );
         } catch (sendErr) {
-          console.error(`[listener] Failed to post listing embed for ${listing.id}:`, sendErr);
-          // Don't mark as seen — retry next poll
+          console.error(`[listener] [${guildId}] Failed to post listing ${listing.id}:`, sendErr);
           continue;
         }
 
-        // Persist immediately so a crash/restart can't re-announce the exact same listing
-        announcedListingIds.add(listing.id);
-        markSeen([listing.id]);
+        state.seenListingIds.add(listing.id);
+        markSeen(guildId, [listing.id]);
         if (cooldownMs > 0) {
-          recentNfts.set(nftKey(listing), Date.now());
+          state.recentNfts.set(nftKey(listing), Date.now());
         }
       }
-    } catch (err) {
-      console.error("[listener] API listings poll error:", err);
     }
   }
 

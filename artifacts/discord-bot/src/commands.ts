@@ -11,7 +11,7 @@ import {
 } from "discord.js";
 import { ethers } from "ethers";
 import {
-  getSettings,
+  getGuildSettings,
   setListingsChannel,
   setMintsChannel,
   setMintContract,
@@ -22,16 +22,15 @@ import {
   addTrackedCollection,
   removeTrackedCollection,
 } from "./settings.js";
-import type { ListenerState } from "./listener.js";
+import type { GuildState } from "./listener.js";
+import { loadSeenIds } from "./seenListings.js";
 
 export const settingsCommand = new SlashCommandBuilder()
   .setName("settings")
   .setDescription("Configure the MANE NFT Discord bot")
   .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
   .addSubcommand((sub) =>
-    sub
-      .setName("status")
-      .setDescription("Show current bot settings")
+    sub.setName("status").setDescription("Show current bot settings")
   )
   .addSubcommandGroup((group) =>
     group
@@ -159,40 +158,73 @@ export async function registerCommands(client: Client): Promise<void> {
   }
 }
 
+function ensureGuildState(
+  guildId: string,
+  guildStates: Map<string, GuildState>
+): GuildState {
+  let state = guildStates.get(guildId);
+  if (!state) {
+    const s = getGuildSettings(guildId);
+    state = {
+      guildId,
+      listingsChannel: null,
+      mintsChannel: null,
+      mintContractAddress: s.mintContractAddress?.toLowerCase() ?? null,
+      trackedCollections: new Set(s.trackedCollections.map((a) => a.toLowerCase())),
+      relistCooldownMs: (s.cooldownHours ?? 6) * 60 * 60 * 1000,
+      seenListingIds: loadSeenIds(guildId),
+      recentNfts: new Map(),
+    };
+    guildStates.set(guildId, state);
+  }
+  return state;
+}
+
 export async function handleInteraction(
   interaction: ChatInputCommandInteraction,
-  state: ListenerState
+  guildStates: Map<string, GuildState>
 ): Promise<void> {
   if (!interaction.isChatInputCommand() || interaction.commandName !== "settings") return;
+
+  const guildId = interaction.guildId;
+  if (!guildId) {
+    await interaction.reply({
+      content: "⚠️ This command can only be used inside a Discord server.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
 
   const subgroup = interaction.options.getSubcommandGroup(false);
   const sub = interaction.options.getSubcommand(false);
 
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+  const guildState = ensureGuildState(guildId, guildStates);
+
   try {
     if (!subgroup && sub === "status") {
-      await handleStatus(interaction, state);
+      await handleStatus(interaction, guildId, guildState);
     } else if (!subgroup && sub === "cooldown") {
-      await handleSetCooldown(interaction, state);
+      await handleSetCooldown(interaction, guildId, guildState);
     } else if (subgroup === "channel" && sub === "listings") {
-      await handleSetListingsChannel(interaction, state);
+      await handleSetListingsChannel(interaction, guildId, guildState);
     } else if (subgroup === "channel" && sub === "mints") {
-      await handleSetMintsChannel(interaction, state);
+      await handleSetMintsChannel(interaction, guildId, guildState);
     } else if (subgroup === "mint" && sub === "set") {
-      await handleSetMintContract(interaction, state);
+      await handleSetMintContract(interaction, guildId, guildState);
     } else if (subgroup === "mint" && sub === "clear") {
-      await handleClearMintContract(interaction, state);
+      await handleClearMintContract(interaction, guildId, guildState);
     } else if (subgroup === "collection" && sub === "add") {
-      await handleAddCollection(interaction, state);
+      await handleAddCollection(interaction, guildId, guildState);
     } else if (subgroup === "collection" && sub === "remove") {
-      await handleRemoveCollection(interaction, state);
+      await handleRemoveCollection(interaction, guildId, guildState);
     } else if (subgroup === "collection" && sub === "list") {
-      await handleListCollections(interaction);
+      await handleListCollections(interaction, guildId);
     } else if (subgroup === "collection" && sub === "set") {
-      await handleSetOnlyCollection(interaction, state);
+      await handleSetOnlyCollection(interaction, guildId, guildState);
     } else if (subgroup === "collection" && sub === "clear") {
-      await handleClearCollections(interaction, state);
+      await handleClearCollections(interaction, guildId, guildState);
     } else {
       await interaction.editReply("Unknown command.");
     }
@@ -204,9 +236,10 @@ export async function handleInteraction(
 
 async function handleStatus(
   interaction: ChatInputCommandInteraction,
-  state: ListenerState
+  guildId: string,
+  _guildState: GuildState
 ): Promise<void> {
-  const s = getSettings();
+  const s = getGuildSettings(guildId);
 
   const listingsCh = s.channelListingsId ? `<#${s.channelListingsId}>` : "Not set";
   const mintsCh = s.channelMintsId ? `<#${s.channelMintsId}>` : "Not set";
@@ -237,98 +270,65 @@ async function handleStatus(
 
 async function handleSetCooldown(
   interaction: ChatInputCommandInteraction,
-  state: ListenerState
+  guildId: string,
+  guildState: GuildState
 ): Promise<void> {
   const hours = interaction.options.getInteger("hours", true);
-  setCooldown(hours);
-  state.relistCooldownMs = hours * 60 * 60 * 1000;
+  setCooldown(guildId, hours);
+  guildState.relistCooldownMs = hours * 60 * 60 * 1000;
 
-  const display = hours === 0 ? "disabled (all relists will be announced)" : `${hours} hour${hours === 1 ? "" : "s"}`;
+  const display =
+    hours === 0 ? "disabled (all relists will be announced)" : `${hours} hour${hours === 1 ? "" : "s"}`;
   await interaction.editReply(`✅ Relist cooldown set to **${display}**. Takes effect on the next poll.`);
-  console.log(`[commands] Relist cooldown updated to ${hours}h`);
-}
-
-async function handleSetMintContract(
-  interaction: ChatInputCommandInteraction,
-  state: ListenerState
-): Promise<void> {
-  const address = interaction.options.getString("address", true).trim();
-
-  if (!ethers.isAddress(address)) {
-    await interaction.editReply(
-      `❌ \`${address}\` is not a valid Cronos contract address. Make sure it starts with \`0x\` and is 42 characters long.`
-    );
-    return;
-  }
-
-  const checksummed = ethers.getAddress(address);
-  setMintContract(checksummed);
-  state.mintContractAddress = checksummed.toLowerCase();
-
-  await interaction.editReply(
-    `✅ Mint tracker set to contract \`${checksummed}\`.\n\nThe bot will now watch for live mints on this contract and post them to the mints channel.${state.mintsChannel ? "" : "\n\n💡 Don't forget to set a mints channel with `/settings channel mints`."}`
-  );
-  console.log(`[commands] Mint contract set to: ${checksummed}`);
-}
-
-async function handleClearMintContract(
-  interaction: ChatInputCommandInteraction,
-  state: ListenerState
-): Promise<void> {
-  clearMintContract();
-  state.mintContractAddress = null;
-
-  await interaction.editReply("✅ Mint tracker cleared. The bot will no longer watch for new mints.");
-  console.log("[commands] Mint contract cleared");
-}
-
-async function handleSetMintsChannel(
-  interaction: ChatInputCommandInteraction,
-  state: ListenerState
-): Promise<void> {
-  const channel = interaction.options.getChannel("channel", true);
-  setMintsChannel(channel.id);
-
-  try {
-    const fetched = await interaction.client.channels.fetch(channel.id);
-    if (fetched && fetched.isTextBased()) {
-      state.mintsChannel = fetched as import("discord.js").TextChannel;
-    }
-  } catch {
-    // channel fetch failed, state not updated
-  }
-
-  await interaction.editReply(
-    `✅ Mints channel set to <#${channel.id}>. Live NFT mints will be announced there.\n\n💡 Make sure you have one collection set via \`/settings collection set <address>\` to enable mint tracking.`
-  );
-  console.log(`[commands] Mints channel updated to ${channel.id}`);
+  console.log(`[commands] [${guildId}] Cooldown updated to ${hours}h`);
 }
 
 async function handleSetListingsChannel(
   interaction: ChatInputCommandInteraction,
-  state: ListenerState
+  guildId: string,
+  guildState: GuildState
 ): Promise<void> {
   const channel = interaction.options.getChannel("channel", true);
-  const settings = setListingsChannel(channel.id);
+  setListingsChannel(guildId, channel.id);
 
   try {
     const fetched = await interaction.client.channels.fetch(channel.id);
     if (fetched && fetched.isTextBased()) {
-      state.listingsChannel = fetched as import("discord.js").TextChannel;
+      guildState.listingsChannel = fetched as import("discord.js").TextChannel;
     }
-  } catch {
-    // channel fetch failed, state not updated
-  }
+  } catch {}
 
   await interaction.editReply(
     `✅ Listings channel set to <#${channel.id}>. New NFT listings will be announced there.`
   );
-  console.log(`[commands] Listings channel updated to ${channel.id}`);
+  console.log(`[commands] [${guildId}] Listings channel set to ${channel.id}`);
 }
 
-async function handleAddCollection(
+async function handleSetMintsChannel(
   interaction: ChatInputCommandInteraction,
-  state: ListenerState
+  guildId: string,
+  guildState: GuildState
+): Promise<void> {
+  const channel = interaction.options.getChannel("channel", true);
+  setMintsChannel(guildId, channel.id);
+
+  try {
+    const fetched = await interaction.client.channels.fetch(channel.id);
+    if (fetched && fetched.isTextBased()) {
+      guildState.mintsChannel = fetched as import("discord.js").TextChannel;
+    }
+  } catch {}
+
+  await interaction.editReply(
+    `✅ Mints channel set to <#${channel.id}>. Live NFT mints will be announced there.\n\n💡 Use \`/settings mint set <address>\` to set which contract to watch.`
+  );
+  console.log(`[commands] [${guildId}] Mints channel set to ${channel.id}`);
+}
+
+async function handleSetMintContract(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  guildState: GuildState
 ): Promise<void> {
   const address = interaction.options.getString("address", true).trim();
 
@@ -340,27 +340,68 @@ async function handleAddCollection(
   }
 
   const checksummed = ethers.getAddress(address);
-  const { added } = addTrackedCollection(checksummed);
+  setMintContract(guildId, checksummed);
+  guildState.mintContractAddress = checksummed.toLowerCase();
+
+  await interaction.editReply(
+    `✅ Mint tracker set to \`${checksummed}\`.${
+      guildState.mintsChannel
+        ? ""
+        : "\n\n💡 Don't forget to set a mints channel with `/settings channel mints`."
+    }`
+  );
+  console.log(`[commands] [${guildId}] Mint contract set to ${checksummed}`);
+}
+
+async function handleClearMintContract(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  guildState: GuildState
+): Promise<void> {
+  clearMintContract(guildId);
+  guildState.mintContractAddress = null;
+
+  await interaction.editReply("✅ Mint tracker cleared. The bot will no longer watch for new mints.");
+  console.log(`[commands] [${guildId}] Mint contract cleared`);
+}
+
+async function handleAddCollection(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  guildState: GuildState
+): Promise<void> {
+  const address = interaction.options.getString("address", true).trim();
+
+  if (!ethers.isAddress(address)) {
+    await interaction.editReply(
+      `❌ \`${address}\` is not a valid Cronos contract address.`
+    );
+    return;
+  }
+
+  const checksummed = ethers.getAddress(address);
+  const { added } = addTrackedCollection(guildId, checksummed);
 
   if (!added) {
     await interaction.editReply(`⚠️ \`${checksummed}\` is already being tracked.`);
     return;
   }
 
-  state.trackedCollections.add(checksummed.toLowerCase());
+  guildState.trackedCollections.add(checksummed.toLowerCase());
 
-  const settings = getSettings();
+  const settings = getGuildSettings(guildId);
   const listStr = settings.trackedCollections.map((a) => `• \`${a}\``).join("\n");
 
   await interaction.editReply(
-    `✅ Now tracking collection \`${checksummed}\`.\n\n**All tracked collections:**\n${listStr}`
+    `✅ Now tracking \`${checksummed}\`.\n\n**All tracked collections:**\n${listStr}`
   );
-  console.log(`[commands] Added tracked collection: ${checksummed}`);
+  console.log(`[commands] [${guildId}] Added collection: ${checksummed}`);
 }
 
 async function handleRemoveCollection(
   interaction: ChatInputCommandInteraction,
-  state: ListenerState
+  guildId: string,
+  guildState: GuildState
 ): Promise<void> {
   const address = interaction.options.getString("address", true).trim();
 
@@ -370,35 +411,34 @@ async function handleRemoveCollection(
   }
 
   const checksummed = ethers.getAddress(address);
-  const { removed } = removeTrackedCollection(checksummed);
+  const { removed } = removeTrackedCollection(guildId, checksummed);
 
   if (!removed) {
     await interaction.editReply(`⚠️ \`${checksummed}\` was not in the tracked list.`);
     return;
   }
 
-  state.trackedCollections.delete(checksummed.toLowerCase());
+  guildState.trackedCollections.delete(checksummed.toLowerCase());
 
-  const settings = getSettings();
+  const settings = getGuildSettings(guildId);
   const listStr =
     settings.trackedCollections.length > 0
       ? settings.trackedCollections.map((a) => `• \`${a}\``).join("\n")
       : "None — all collections will be announced.";
 
   await interaction.editReply(
-    `✅ Removed \`${checksummed}\` from tracked collections.\n\n**Remaining tracked collections:**\n${listStr}`
+    `✅ Removed \`${checksummed}\`.\n\n**Remaining tracked collections:**\n${listStr}`
   );
-  console.log(`[commands] Removed tracked collection: ${checksummed}`);
+  console.log(`[commands] [${guildId}] Removed collection: ${checksummed}`);
 }
 
 async function handleListCollections(
-  interaction: ChatInputCommandInteraction
+  interaction: ChatInputCommandInteraction,
+  guildId: string
 ): Promise<void> {
-  const settings = getSettings();
+  const settings = getGuildSettings(guildId);
 
-  const embed = new EmbedBuilder()
-    .setColor(0x9b59b6)
-    .setTitle("🎨 Tracked NFT Collections");
+  const embed = new EmbedBuilder().setColor(0x9b59b6).setTitle("🎨 Tracked NFT Collections");
 
   if (settings.trackedCollections.length === 0) {
     embed.setDescription(
@@ -406,13 +446,9 @@ async function handleListCollections(
     );
   } else {
     embed.setDescription(
-      settings.trackedCollections
-        .map((addr, i) => `${i + 1}. \`${addr}\``)
-        .join("\n")
+      settings.trackedCollections.map((addr, i) => `${i + 1}. \`${addr}\``).join("\n")
     );
-    embed.setFooter({
-      text: `${settings.trackedCollections.length} collection(s) tracked`,
-    });
+    embed.setFooter({ text: `${settings.trackedCollections.length} collection(s) tracked` });
   }
 
   await interaction.editReply({ embeds: [embed] });
@@ -420,38 +456,40 @@ async function handleListCollections(
 
 async function handleSetOnlyCollection(
   interaction: ChatInputCommandInteraction,
-  state: ListenerState
+  guildId: string,
+  guildState: GuildState
 ): Promise<void> {
   const address = interaction.options.getString("address", true).trim();
 
   if (!ethers.isAddress(address)) {
     await interaction.editReply(
-      `❌ \`${address}\` is not a valid Cronos contract address. Make sure it starts with \`0x\` and is 42 characters long.`
+      `❌ \`${address}\` is not a valid Cronos contract address.`
     );
     return;
   }
 
   const checksummed = ethers.getAddress(address);
-  setOnlyCollection(checksummed);
+  setOnlyCollection(guildId, checksummed);
 
-  state.trackedCollections.clear();
-  state.trackedCollections.add(checksummed.toLowerCase());
+  guildState.trackedCollections.clear();
+  guildState.trackedCollections.add(checksummed.toLowerCase());
 
   await interaction.editReply(
     `✅ Bot is now locked to **one collection only**:\n\`${checksummed}\`\n\nAll listings from other collections will be ignored.`
   );
-  console.log(`[commands] Collection locked to: ${checksummed}`);
+  console.log(`[commands] [${guildId}] Collection locked to: ${checksummed}`);
 }
 
 async function handleClearCollections(
   interaction: ChatInputCommandInteraction,
-  state: ListenerState
+  guildId: string,
+  guildState: GuildState
 ): Promise<void> {
-  clearTrackedCollections();
-  state.trackedCollections.clear();
+  clearTrackedCollections(guildId);
+  guildState.trackedCollections.clear();
 
   await interaction.editReply(
     `✅ Collection filter cleared. The bot will now announce listings from **all collections** on the marketplace.`
   );
-  console.log(`[commands] Collection filter cleared — tracking all collections`);
+  console.log(`[commands] [${guildId}] Collection filter cleared`);
 }
