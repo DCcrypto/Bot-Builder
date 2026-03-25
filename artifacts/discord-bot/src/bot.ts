@@ -71,18 +71,32 @@ export async function startBot(): Promise<void> {
 
   const guildStates = new Map<string, GuildState>();
 
+  const allowedGuildIds = config.discord.allowedGuildIds;
+  const isAllowed = (guildId: string) =>
+    allowedGuildIds.size === 0 || allowedGuildIds.has(guildId);
+
   client.once("clientReady", async (c) => {
     console.log(`[bot] Logged in as ${c.user.tag} (Client ID: ${c.user.id})`);
     console.log(
       `[bot] Invite URL: https://discord.com/api/oauth2/authorize?client_id=${c.user.id}&permissions=2048&scope=bot%20applications.commands`
     );
-    console.log(`[bot] Active in ${c.guilds.cache.size} guild(s)`);
+
+    if (allowedGuildIds.size > 0) {
+      console.log(`[bot] Allowlist active — authorized guilds: ${[...allowedGuildIds].join(", ")}`);
+    }
 
     for (const [guildId, guild] of c.guilds.cache) {
+      if (!isAllowed(guildId)) {
+        console.warn(`[bot] Leaving unauthorized guild: ${guild.name} (${guildId})`);
+        await guild.leave().catch(() => {});
+        continue;
+      }
       const state = await initGuildState(client, guildId, guild.name);
       guildStates.set(guildId, state);
       console.log(`[bot] Initialized: ${guild.name} (${guildId})`);
     }
+
+    console.log(`[bot] Active in ${guildStates.size} authorized guild(s)`);
 
     await registerCommands(client);
     startListener(guildStates);
@@ -90,6 +104,11 @@ export async function startBot(): Promise<void> {
   });
 
   client.on("guildCreate", async (guild) => {
+    if (!isAllowed(guild.id)) {
+      console.warn(`[bot] Rejecting unauthorized guild: ${guild.name} (${guild.id}) — leaving now`);
+      await guild.leave().catch(() => {});
+      return;
+    }
     console.log(`[bot] Joined new guild: ${guild.name} (${guild.id})`);
     const settings = getGuildSettings(guild.id);
     saveGuildSettings(guild.id, settings);
