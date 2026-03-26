@@ -224,13 +224,13 @@ importers:
       node-fetch:
         specifier: ^3.3.2
         version: 3.3.2
+      tsx:
+        specifier: 'catalog:'
+        version: 4.21.0
     devDependencies:
       '@types/node':
         specifier: 'catalog:'
         version: 25.3.5
-      tsx:
-        specifier: 'catalog:'
-        version: 4.21.0
       typescript:
         specifier: ~5.9.2
         version: 5.9.3

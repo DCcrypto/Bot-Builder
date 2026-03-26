@@ -11,9 +11,12 @@ process.on("uncaughtException", (err) => {
   console.error("[main] Uncaught exception:", err);
 });
 
-startHealthServer();
+async function main() {
+  await startHealthServer();
+  await startBot().catch((err) => {
+    console.error("[main] Fatal startup error:", err);
+    process.exit(1);
+  });
+}
 
-startBot().catch((err) => {
-  console.error("[main] Fatal startup error:", err);
-  process.exit(1);
-});
+main();
