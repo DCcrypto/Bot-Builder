@@ -1,4 +1,5 @@
 import { startBot } from "./bot.js";
+import { startHealthServer } from "./health.js";
 
 console.log("[main] Starting MANE NFT Discord Bot...");
 
@@ -9,6 +10,8 @@ process.on("unhandledRejection", (reason, promise) => {
 process.on("uncaughtException", (err) => {
   console.error("[main] Uncaught exception:", err);
 });
+
+startHealthServer();
 
 startBot().catch((err) => {
   console.error("[main] Fatal startup error:", err);

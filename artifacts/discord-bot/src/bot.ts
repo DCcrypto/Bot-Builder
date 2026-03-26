@@ -147,12 +147,34 @@ export async function startBot(): Promise<void> {
   });
 
   client.on("shardDisconnect", (event, shardId) => {
-    console.warn(`[bot] WebSocket disconnected (shard ${shardId}, code ${event.code}) — reconnecting...`);
+    console.warn(`[bot] WebSocket DISCONNECTED (shard ${shardId}, code ${event.code}) — interactions will fail until reconnected`);
   });
 
   client.on("shardResume", (shardId, replayedEvents) => {
-    console.log(`[bot] WebSocket reconnected (shard ${shardId}, replayed ${replayedEvents} events)`);
+    console.log(`[bot] WebSocket RECONNECTED (shard ${shardId}, replayed ${replayedEvents} events)`);
+  });
+
+  client.on("shardReconnecting", (shardId) => {
+    console.warn(`[bot] WebSocket RECONNECTING (shard ${shardId})...`);
+  });
+
+  client.on("shardError", (err, shardId) => {
+    console.error(`[bot] WebSocket shard ${shardId} error:`, err.message);
+  });
+
+  client.on("debug", (info) => {
+    if (/heartbeat|HEARTBEAT|reconnect|DISCONNECT|close|session (invalid|resumed)/i.test(info)) {
+      console.log(`[ws] ${info}`);
+    }
   });
 
   await client.login(config.discord.token);
+
+  setInterval(() => {
+    const status = client.ws.status;
+    const ping = client.ws.ping;
+    if (status !== 0) {
+      console.warn(`[bot] WebSocket status check: NOT READY (status=${status}, ping=${ping}ms) — interactions may be failing`);
+    }
+  }, 30_000);
 }

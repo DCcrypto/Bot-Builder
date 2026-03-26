@@ -12,5 +12,12 @@
     "mintContractAddress": "0x4BC07aE8FAB8614820Eb6A0c5c71b30f5f4447cB",
     "trackedCollections": [],
     "cooldownHours": 6
+  },
+  "1420514356789117113": {
+    "channelListingsId": null,
+    "channelMintsId": null,
+    "mintContractAddress": "0x24C734A3cFA16311d2C5247b0C10daa80d1FEC01",
+    "trackedCollections": [],
+    "cooldownHours": 6
   }
 }
