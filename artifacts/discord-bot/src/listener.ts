@@ -137,13 +137,16 @@ export async function startListener(guildStates: Map<string, GuildState>): Promi
 
   async function run(): Promise<void> {
     while (true) {
-      await pollNewListings();
+      try {
+        await pollNewListings();
+      } catch (err) {
+        console.error("[listener] Unexpected poll error (will retry):", err);
+      }
       await sleep(config.cronos.pollIntervalMs);
     }
   }
 
   run().catch((err) => {
-    console.error("[listener] Fatal error:", err);
-    process.exit(1);
+    console.error("[listener] Run loop exited unexpectedly:", err);
   });
 }

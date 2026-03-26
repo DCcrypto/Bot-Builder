@@ -142,5 +142,13 @@ export async function startBot(): Promise<void> {
     console.error("[bot] Discord client error:", err);
   });
 
+  client.on("shardDisconnect", (event, shardId) => {
+    console.warn(`[bot] WebSocket disconnected (shard ${shardId}, code ${event.code}) — reconnecting...`);
+  });
+
+  client.on("shardResume", (shardId, replayedEvents) => {
+    console.log(`[bot] WebSocket reconnected (shard ${shardId}, replayed ${replayedEvents} events)`);
+  });
+
   await client.login(config.discord.token);
 }

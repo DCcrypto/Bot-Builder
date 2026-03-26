@@ -14,6 +14,7 @@ const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const POLL_INTERVAL_MS = 15_000;
 const MAX_BLOCK_RANGE = 999;
 const STARTUP_BLOCK_LOOKBACK = 50;
+const MAX_CATCHUP_BLOCKS = 5_000;
 
 const ERC721_ABI = [
   "event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)",
@@ -86,8 +87,13 @@ async function pollContract(
     let lastBlock = lastBlocks.get(contractAddress) ?? null;
     if (lastBlock === null) {
       const saved = loadLastBlock(contractAddress);
-      lastBlock = saved ?? currentBlock - STARTUP_BLOCK_LOOKBACK;
-      console.log(`[mint] Starting ${contractAddress} from block ${lastBlock} (current: ${currentBlock})`);
+      const minBlock = currentBlock - MAX_CATCHUP_BLOCKS;
+      lastBlock = saved !== null ? Math.max(saved, minBlock) : currentBlock - STARTUP_BLOCK_LOOKBACK;
+      if (saved !== null && saved < minBlock) {
+        console.log(`[mint] ${contractAddress}: saved block ${saved} too far behind — starting from ${lastBlock} (current: ${currentBlock})`);
+      } else {
+        console.log(`[mint] Starting ${contractAddress} from block ${lastBlock} (current: ${currentBlock})`);
+      }
     }
 
     if (currentBlock <= lastBlock) return;
@@ -180,13 +186,16 @@ export async function startMintListener(guildStates: Map<string, GuildState>): P
 
   async function run(): Promise<void> {
     while (true) {
-      await poll();
+      try {
+        await poll();
+      } catch (err) {
+        console.error("[mint] Unexpected poll error (will retry):", err);
+      }
       await sleep(POLL_INTERVAL_MS);
     }
   }
 
   run().catch((err) => {
-    console.error("[mint] Fatal error:", err);
-    process.exit(1);
+    console.error("[mint] Run loop exited unexpectedly:", err);
   });
 }
