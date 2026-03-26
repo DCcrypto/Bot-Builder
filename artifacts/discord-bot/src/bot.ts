@@ -123,7 +123,11 @@ export async function startBot(): Promise<void> {
   });
 
   client.on("interactionCreate", async (interaction) => {
+    const guildTag = interaction.guildId ?? "DM";
+    console.log(`[bot] Interaction received: type=${interaction.type} guild=${guildTag} isChatInput=${interaction.isChatInputCommand()}`);
+
     if (!interaction.isChatInputCommand()) return;
+
     try {
       await handleInteraction(interaction, guildStates);
     } catch (err) {
