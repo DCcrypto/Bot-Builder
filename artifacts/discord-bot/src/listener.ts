@@ -81,12 +81,14 @@ export async function startListener(guildStates: Map<string, GuildState>): Promi
     for (const [guildId, state] of guildStates) {
       if (!state.listingsChannel) continue;
 
+      const newlySeen: string[] = [];
+
       for (const listing of listings) {
         if (state.seenListingIds.has(listing.id)) continue;
 
         if (listing.status === "sold" || !isTrackedCollection(state, listing.nftContractAddress)) {
           state.seenListingIds.add(listing.id);
-          markSeen(guildId, [listing.id]);
+          newlySeen.push(listing.id);
           continue;
         }
 
@@ -99,7 +101,7 @@ export async function startListener(guildStates: Map<string, GuildState>): Promi
           if (lastAt !== undefined && Date.now() - lastAt < cooldownMs) {
             console.log(`[listener] [${guildId}] Cooldown skip: ${listing.nftName ?? listing.id}`);
             state.seenListingIds.add(listing.id);
-            markSeen(guildId, [listing.id]);
+            newlySeen.push(listing.id);
             continue;
           }
         }
@@ -127,10 +129,14 @@ export async function startListener(guildStates: Map<string, GuildState>): Promi
         }
 
         state.seenListingIds.add(listing.id);
-        markSeen(guildId, [listing.id]);
+        newlySeen.push(listing.id);
         if (cooldownMs > 0) {
           state.recentNfts.set(nftKey(listing), Date.now());
         }
+      }
+
+      if (newlySeen.length > 0) {
+        markSeen(guildId, newlySeen);
       }
     }
   }
