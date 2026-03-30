@@ -1,0 +1,14 @@
+#cloud-config
+package_update: true
+packages:
+  - git
+  - curl
+
+runcmd:
+  - curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+  - apt-get install -y nodejs
+  - npm install -g pnpm pm2
+  - su - ubuntu -c "pm2 startup systemd" | grep "sudo" | bash
+  - mkdir -p /home/ubuntu/mane-nft-bot
+  - chown ubuntu:ubuntu /home/ubuntu/mane-nft-bot
+  - echo "READY: Upload bot files to /home/ubuntu/mane-nft-bot then run: pnpm install && pm2 start 'pnpm --filter @workspace/discord-bot run start' --name mane-nft-bot && pm2 save"
