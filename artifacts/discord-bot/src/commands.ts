@@ -22,9 +22,17 @@ import {
   clearTrackedCollections,
   addTrackedCollection,
   removeTrackedCollection,
+  setBuysChannel,
+  setBuyToken,
+  setMinBuyCro,
+  setBuyImage,
+  setBuyEmoji,
+  setBuyRates,
+  clearBuyConfig,
 } from "./settings.js";
 import type { GuildState } from "./listener.js";
 import { loadSeenIds } from "./seenListings.js";
+import { loadSeenBuyTxHashes } from "./seenBuys.js";
 
 export const settingsCommand = new SlashCommandBuilder()
   .setName("settings")
@@ -142,6 +150,94 @@ export const settingsCommand = new SlashCommandBuilder()
           .setName("clear")
           .setDescription("Remove all collection filters — bot will announce listings from every collection")
       )
+  )
+  .addSubcommandGroup((group) =>
+    group
+      .setName("buys")
+      .setDescription("Configure ERC-20 token buy alerts")
+      .addSubcommand((sub) =>
+        sub
+          .setName("channel")
+          .setDescription("Set the channel for token buy alerts")
+          .addChannelOption((opt) =>
+            opt
+              .setName("channel")
+              .setDescription("The text channel to post buy alerts in")
+              .addChannelTypes(ChannelType.GuildText)
+              .setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName("token")
+          .setDescription("Set the token and DEX pair to watch for buys")
+          .addStringOption((opt) =>
+            opt
+              .setName("token")
+              .setDescription("The ERC-20 token contract address to track (0x...)")
+              .setRequired(true)
+          )
+          .addStringOption((opt) =>
+            opt
+              .setName("pair")
+              .setDescription("The DEX pair contract address (e.g. VVS Finance pair) (0x...)")
+              .setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName("minbuy")
+          .setDescription("Set minimum spend to trigger a buy alert (in the pair's quote token, e.g. CRO)")
+          .addNumberOption((opt) =>
+            opt
+              .setName("amount")
+              .setDescription("Minimum amount spent to post an alert (0 = no minimum)")
+              .setMinValue(0)
+              .setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName("image")
+          .setDescription("Set a custom image or GIF URL shown in every buy alert (pass 'clear' to remove)")
+          .addStringOption((opt) =>
+            opt
+              .setName("url")
+              .setDescription("Public HTTPS URL of the image or GIF, or 'clear' to remove")
+              .setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName("emoji")
+          .setDescription("Set the emoji used for the buy size bubble indicator (default: 🟢)")
+          .addStringOption((opt) =>
+            opt
+              .setName("emoji")
+              .setDescription("The emoji to use, e.g. 🚀 💎 🦁")
+              .setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName("rates")
+          .setDescription("Set four spend thresholds that control how many bubbles appear (1–5)")
+          .addNumberOption((opt) =>
+            opt.setName("t1").setDescription("Threshold for 2 bubbles (e.g. 10)").setMinValue(0).setRequired(true)
+          )
+          .addNumberOption((opt) =>
+            opt.setName("t2").setDescription("Threshold for 3 bubbles (e.g. 50)").setMinValue(0).setRequired(true)
+          )
+          .addNumberOption((opt) =>
+            opt.setName("t3").setDescription("Threshold for 4 bubbles (e.g. 200)").setMinValue(0).setRequired(true)
+          )
+          .addNumberOption((opt) =>
+            opt.setName("t4").setDescription("Threshold for 5 bubbles (e.g. 500)").setMinValue(0).setRequired(true)
+          )
+      )
+      .addSubcommand((sub) =>
+        sub.setName("clear").setDescription("Stop buy tracking and clear all buy alert settings")
+      )
   );
 
 export async function registerCommands(client: Client): Promise<void> {
@@ -178,6 +274,14 @@ function ensureGuildState(
       relistCooldownMs: (s.cooldownHours ?? 6) * 60 * 60 * 1000,
       seenListingIds: loadSeenIds(guildId),
       recentNfts: new Map(),
+      buysChannel: null,
+      buyTokenAddress: s.buyTokenAddress ?? null,
+      buyPairAddress: s.buyPairAddress ?? null,
+      minBuyCro: s.minBuyCro ?? 0,
+      buyImageUrl: s.buyImageUrl ?? null,
+      buyEmoji: s.buyEmoji ?? "🟢",
+      buyRates: s.buyRates ?? [10, 50, 200, 500],
+      seenBuyTxHashes: loadSeenBuyTxHashes(guildId),
     };
     guildStates.set(guildId, state);
   }
@@ -238,6 +342,20 @@ export async function handleInteraction(
       await handleSetOnlyCollection(interaction, guildId, guildState);
     } else if (subgroup === "collection" && sub === "clear") {
       await handleClearCollections(interaction, guildId, guildState);
+    } else if (subgroup === "buys" && sub === "channel") {
+      await handleSetBuysChannel(interaction, guildId, guildState);
+    } else if (subgroup === "buys" && sub === "token") {
+      await handleSetBuyToken(interaction, guildId, guildState);
+    } else if (subgroup === "buys" && sub === "minbuy") {
+      await handleSetMinBuy(interaction, guildId, guildState);
+    } else if (subgroup === "buys" && sub === "image") {
+      await handleSetBuyImage(interaction, guildId, guildState);
+    } else if (subgroup === "buys" && sub === "emoji") {
+      await handleSetBuyEmoji(interaction, guildId, guildState);
+    } else if (subgroup === "buys" && sub === "rates") {
+      await handleSetBuyRates(interaction, guildId, guildState);
+    } else if (subgroup === "buys" && sub === "clear") {
+      await handleClearBuys(interaction, guildId, guildState);
     } else {
       await interaction.editReply("Unknown command.");
     }
@@ -266,6 +384,15 @@ async function handleStatus(
   const cooldownHours = s.cooldownHours ?? 6;
   const cooldownDisplay = cooldownHours === 0 ? "Disabled" : `${cooldownHours}h`;
 
+  const buysCh = s.channelBuysId ? `<#${s.channelBuysId}>` : "Not set";
+  const buyToken = s.buyTokenAddress ? `\`${s.buyTokenAddress}\`` : "Not set";
+  const buyPair = s.buyPairAddress ? `\`${s.buyPairAddress}\`` : "Not set";
+  const buyMin = s.minBuyCro > 0 ? `${s.minBuyCro}` : "None";
+  const buyEmoji = s.buyEmoji ?? "🟢";
+  const buyRates = s.buyRates ?? [10, 50, 200, 500];
+  const buyRatesDisplay = `${buyRates[0]} / ${buyRates[1]} / ${buyRates[2]} / ${buyRates[3]}`;
+  const buyImage = s.buyImageUrl ? s.buyImageUrl : "Not set";
+
   const embed = new EmbedBuilder()
     .setColor(0x9b59b6)
     .setTitle("⚙️ MANE NFT Bot — Current Settings")
@@ -274,7 +401,15 @@ async function handleStatus(
       { name: "🪙 Mints Channel", value: mintsCh, inline: false },
       { name: "🔎 Mint Contract", value: mintContract, inline: false },
       { name: "⏱️ Relist Cooldown", value: cooldownDisplay, inline: false },
-      { name: "🎨 Tracked Collections", value: collections, inline: false }
+      { name: "🎨 Tracked Collections", value: collections, inline: false },
+      { name: "\u200b", value: "**— Buy Alert Settings —**", inline: false },
+      { name: "💰 Buy Alert Channel", value: buysCh, inline: true },
+      { name: "🪙 Buy Token", value: buyToken, inline: true },
+      { name: "🔗 DEX Pair", value: buyPair, inline: true },
+      { name: "📊 Bubble Emoji", value: buyEmoji, inline: true },
+      { name: "📈 Bubble Rates", value: buyRatesDisplay, inline: true },
+      { name: "⬇️ Min Spend", value: buyMin, inline: true },
+      { name: "🖼️ Buy Image", value: buyImage, inline: false }
     )
     .setTimestamp();
 
@@ -290,6 +425,7 @@ async function handleRefresh(
 
   let listingsChannel: TextChannel | null = null;
   let mintsChannel: TextChannel | null = null;
+  let buysChannel: TextChannel | null = null;
 
   if (s.channelListingsId) {
     try {
@@ -305,12 +441,26 @@ async function handleRefresh(
     } catch {}
   }
 
+  if (s.channelBuysId) {
+    try {
+      const ch = await interaction.client.channels.fetch(s.channelBuysId);
+      if (ch && ch.isTextBased()) buysChannel = ch as TextChannel;
+    } catch {}
+  }
+
   guildState.listingsChannel = listingsChannel;
   guildState.mintsChannel = mintsChannel;
+  guildState.buysChannel = buysChannel;
   guildState.mintContractAddress = s.mintContractAddress?.toLowerCase() ?? null;
   guildState.trackedCollections = new Set(s.trackedCollections.map((a) => a.toLowerCase()));
   guildState.relistCooldownMs = (s.cooldownHours ?? 6) * 60 * 60 * 1000;
   guildState.seenListingIds = loadSeenIds(guildId);
+  guildState.buyTokenAddress = s.buyTokenAddress ?? null;
+  guildState.buyPairAddress = s.buyPairAddress ?? null;
+  guildState.minBuyCro = s.minBuyCro ?? 0;
+  guildState.buyImageUrl = s.buyImageUrl ?? null;
+  guildState.buyEmoji = s.buyEmoji ?? "🟢";
+  guildState.buyRates = s.buyRates ?? [10, 50, 200, 500];
 
   const lines: string[] = [];
   lines.push(listingsChannel ? `✅ Listings → <#${listingsChannel.id}>` : "⚠️ Listings channel: not set");
@@ -319,6 +469,12 @@ async function handleRefresh(
     s.mintContractAddress
       ? `✅ Mint contract: \`${s.mintContractAddress}\``
       : "⚠️ Mint contract: not set"
+  );
+  lines.push(buysChannel ? `✅ Buy alerts → <#${buysChannel.id}>` : "⚠️ Buy alerts channel: not set");
+  lines.push(
+    s.buyTokenAddress
+      ? `✅ Buy token: \`${s.buyTokenAddress}\``
+      : "⚠️ Buy token: not set"
   );
 
   await interaction.editReply(`🔄 **Bot state refreshed.**\n\n${lines.join("\n")}`);
@@ -549,4 +705,164 @@ async function handleClearCollections(
     `✅ Collection filter cleared. The bot will now announce listings from **all collections** on the marketplace.`
   );
   console.log(`[commands] [${guildId}] Collection filter cleared`);
+}
+
+async function handleSetBuysChannel(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  guildState: GuildState
+): Promise<void> {
+  const channel = interaction.options.getChannel("channel", true);
+  setBuysChannel(guildId, channel.id);
+
+  try {
+    const fetched = await interaction.client.channels.fetch(channel.id);
+    if (fetched && fetched.isTextBased()) {
+      guildState.buysChannel = fetched as TextChannel;
+    }
+  } catch {}
+
+  await interaction.editReply(
+    `✅ Buy alerts channel set to <#${channel.id}>. Token buy alerts will be posted there.\n\n💡 Use \`/settings buys token\` to set which token and pair to watch.`
+  );
+  console.log(`[commands] [${guildId}] Buy alerts channel set to ${channel.id}`);
+}
+
+async function handleSetBuyToken(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  guildState: GuildState
+): Promise<void> {
+  const tokenRaw = interaction.options.getString("token", true).trim();
+  const pairRaw = interaction.options.getString("pair", true).trim();
+
+  if (!ethers.isAddress(tokenRaw)) {
+    await interaction.editReply(`❌ \`${tokenRaw}\` is not a valid token contract address.`);
+    return;
+  }
+  if (!ethers.isAddress(pairRaw)) {
+    await interaction.editReply(`❌ \`${pairRaw}\` is not a valid pair contract address.`);
+    return;
+  }
+
+  const tokenAddr = ethers.getAddress(tokenRaw);
+  const pairAddr = ethers.getAddress(pairRaw);
+
+  setBuyToken(guildId, tokenAddr, pairAddr);
+  guildState.buyTokenAddress = tokenAddr;
+  guildState.buyPairAddress = pairAddr;
+
+  await interaction.editReply(
+    `✅ Buy tracker configured.\n**Token:** \`${tokenAddr}\`\n**Pair:** \`${pairAddr}\`${
+      guildState.buysChannel ? "" : "\n\n💡 Don't forget to set a buy alerts channel with `/settings buys channel`."
+    }`
+  );
+  console.log(`[commands] [${guildId}] Buy token set: ${tokenAddr} / pair: ${pairAddr}`);
+}
+
+async function handleSetMinBuy(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  guildState: GuildState
+): Promise<void> {
+  const amount = interaction.options.getNumber("amount", true);
+  setMinBuyCro(guildId, amount);
+  guildState.minBuyCro = amount;
+
+  const display = amount === 0 ? "disabled (all buys will be announced)" : `${amount}`;
+  await interaction.editReply(`✅ Minimum buy amount set to **${display}**. Takes effect on the next poll.`);
+  console.log(`[commands] [${guildId}] Min buy amount updated to ${amount}`);
+}
+
+async function handleSetBuyImage(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  guildState: GuildState
+): Promise<void> {
+  const url = interaction.options.getString("url", true).trim();
+
+  if (url.toLowerCase() === "clear" || url.toLowerCase() === "remove" || url.toLowerCase() === "none") {
+    setBuyImage(guildId, null);
+    guildState.buyImageUrl = null;
+    await interaction.editReply("✅ Buy alert image removed.");
+    console.log(`[commands] [${guildId}] Buy image cleared`);
+    return;
+  }
+
+  if (!url.startsWith("https://") && !url.startsWith("http://")) {
+    await interaction.editReply("❌ URL must start with `https://`. Pass `clear` to remove the current image.");
+    return;
+  }
+
+  setBuyImage(guildId, url);
+  guildState.buyImageUrl = url;
+
+  await interaction.editReply(`✅ Buy alert image set.\n\nIt will appear at the bottom of every buy alert embed.\n💡 Pass \`clear\` to this command to remove it later.`);
+  console.log(`[commands] [${guildId}] Buy image set to ${url}`);
+}
+
+async function handleSetBuyEmoji(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  guildState: GuildState
+): Promise<void> {
+  const emoji = interaction.options.getString("emoji", true).trim();
+
+  setBuyEmoji(guildId, emoji);
+  guildState.buyEmoji = emoji;
+
+  const rates = guildState.buyRates ?? [10, 50, 200, 500];
+  await interaction.editReply(
+    `✅ Buy bubble emoji set to **${emoji}**.\n\nExample sizes: ${emoji} / ${emoji.repeat(2)} / ${emoji.repeat(3)} / ${emoji.repeat(4)} / ${emoji.repeat(5)}\n(Based on your rates: ${rates[0]} / ${rates[1]} / ${rates[2]} / ${rates[3]})`
+  );
+  console.log(`[commands] [${guildId}] Buy emoji set to ${emoji}`);
+}
+
+async function handleSetBuyRates(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  guildState: GuildState
+): Promise<void> {
+  const t1 = interaction.options.getNumber("t1", true);
+  const t2 = interaction.options.getNumber("t2", true);
+  const t3 = interaction.options.getNumber("t3", true);
+  const t4 = interaction.options.getNumber("t4", true);
+
+  if (!(t1 < t2 && t2 < t3 && t3 < t4)) {
+    await interaction.editReply("❌ Thresholds must be in ascending order: t1 < t2 < t3 < t4.");
+    return;
+  }
+
+  const rates: [number, number, number, number] = [t1, t2, t3, t4];
+  setBuyRates(guildId, rates);
+  guildState.buyRates = rates;
+
+  const emoji = guildState.buyEmoji ?? "🟢";
+  await interaction.editReply(
+    `✅ Buy bubble rates updated.\n\n` +
+    `${emoji} — spend < **${t1}**\n` +
+    `${emoji.repeat(2)} — spend ≥ **${t1}**\n` +
+    `${emoji.repeat(3)} — spend ≥ **${t2}**\n` +
+    `${emoji.repeat(4)} — spend ≥ **${t3}**\n` +
+    `${emoji.repeat(5)} — spend ≥ **${t4}**`
+  );
+  console.log(`[commands] [${guildId}] Buy rates set to ${rates.join(", ")}`);
+}
+
+async function handleClearBuys(
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  guildState: GuildState
+): Promise<void> {
+  clearBuyConfig(guildId);
+  guildState.buysChannel = null;
+  guildState.buyTokenAddress = null;
+  guildState.buyPairAddress = null;
+  guildState.minBuyCro = 0;
+  guildState.buyImageUrl = null;
+  guildState.buyEmoji = "🟢";
+  guildState.buyRates = [10, 50, 200, 500];
+
+  await interaction.editReply("✅ Buy alert settings cleared. The bot will no longer watch for token buys.");
+  console.log(`[commands] [${guildId}] Buy config cleared`);
 }

@@ -2,9 +2,11 @@ import { Client, GatewayIntentBits, type TextChannel } from "discord.js";
 import { config } from "./config.js";
 import { startListener, type GuildState } from "./listener.js";
 import { startMintListener } from "./mintListener.js";
+import { startTokenBuyListener } from "./tokenBuyListener.js";
 import { registerCommands, handleInteraction } from "./commands.js";
 import { getGuildSettings, saveGuildSettings } from "./settings.js";
 import { loadSeenIds } from "./seenListings.js";
+import { loadSeenBuyTxHashes } from "./seenBuys.js";
 
 async function fetchTextChannel(
   client: Client,
@@ -32,6 +34,14 @@ function buildGuildState(guildId: string): GuildState {
     relistCooldownMs: (s.cooldownHours ?? 6) * 60 * 60 * 1000,
     seenListingIds: loadSeenIds(guildId),
     recentNfts: new Map(),
+    buysChannel: null,
+    buyTokenAddress: s.buyTokenAddress ?? null,
+    buyPairAddress: s.buyPairAddress ?? null,
+    minBuyCro: s.minBuyCro ?? 0,
+    buyImageUrl: s.buyImageUrl ?? null,
+    buyEmoji: s.buyEmoji ?? "🟢",
+    buyRates: s.buyRates ?? [10, 50, 200, 500],
+    seenBuyTxHashes: loadSeenBuyTxHashes(guildId),
   };
 }
 
@@ -57,8 +67,19 @@ async function initGuildState(
     }
   }
 
+  if (settings.channelBuysId) {
+    state.buysChannel = await fetchTextChannel(client, settings.channelBuysId);
+    if (state.buysChannel) {
+      console.log(`[bot] [${guildName}] Buys: #${state.buysChannel.name}`);
+    }
+  }
+
   if (settings.mintContractAddress) {
     console.log(`[bot] [${guildName}] Mint contract: ${settings.mintContractAddress}`);
+  }
+
+  if (settings.buyTokenAddress && settings.buyPairAddress) {
+    console.log(`[bot] [${guildName}] Buy token: ${settings.buyTokenAddress} / pair: ${settings.buyPairAddress}`);
   }
 
   return state;
@@ -101,6 +122,7 @@ export async function startBot(): Promise<void> {
     await registerCommands(client);
     startListener(guildStates);
     startMintListener(guildStates);
+    startTokenBuyListener(guildStates);
   });
 
   client.on("guildCreate", async (guild) => {

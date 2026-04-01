@@ -12,6 +12,13 @@ export interface GuildSettings {
   mintContractAddress: string | null;
   trackedCollections: string[];
   cooldownHours: number;
+  channelBuysId: string | null;
+  buyTokenAddress: string | null;
+  buyPairAddress: string | null;
+  minBuyCro: number;
+  buyImageUrl: string | null;
+  buyEmoji: string;
+  buyRates: [number, number, number, number];
 }
 
 type GuildSettingsStore = Record<string, GuildSettings>;
@@ -22,6 +29,13 @@ const DEFAULT_GUILD_SETTINGS: GuildSettings = {
   mintContractAddress: null,
   trackedCollections: [],
   cooldownHours: 6,
+  channelBuysId: null,
+  buyTokenAddress: null,
+  buyPairAddress: null,
+  minBuyCro: 0,
+  buyImageUrl: null,
+  buyEmoji: "🟢",
+  buyRates: [10, 50, 200, 500],
 };
 
 function ensureDataDir(): void {
@@ -48,12 +62,22 @@ export function getGuildSettings(guildId: string): GuildSettings {
   const store = loadStore();
   const saved = store[guildId];
   if (!saved) return { ...DEFAULT_GUILD_SETTINGS };
+  const rates = Array.isArray(saved.buyRates) && saved.buyRates.length === 4
+    ? saved.buyRates as [number, number, number, number]
+    : DEFAULT_GUILD_SETTINGS.buyRates;
   return {
     channelListingsId: saved.channelListingsId ?? null,
     channelMintsId: saved.channelMintsId ?? null,
     mintContractAddress: saved.mintContractAddress ?? null,
     trackedCollections: saved.trackedCollections ?? [],
     cooldownHours: typeof saved.cooldownHours === "number" ? saved.cooldownHours : DEFAULT_GUILD_SETTINGS.cooldownHours,
+    channelBuysId: saved.channelBuysId ?? null,
+    buyTokenAddress: saved.buyTokenAddress ?? null,
+    buyPairAddress: saved.buyPairAddress ?? null,
+    minBuyCro: typeof saved.minBuyCro === "number" ? saved.minBuyCro : 0,
+    buyImageUrl: saved.buyImageUrl ?? null,
+    buyEmoji: saved.buyEmoji ?? "🟢",
+    buyRates: rates,
   };
 }
 
@@ -133,4 +157,43 @@ export function removeTrackedCollection(
   const removed = s.trackedCollections.length < before;
   if (removed) saveGuildSettings(guildId, s);
   return { removed, settings: s };
+}
+
+export function setBuysChannel(guildId: string, id: string | null): GuildSettings {
+  return updateGuild(guildId, (s) => { s.channelBuysId = id; });
+}
+
+export function setBuyToken(guildId: string, tokenAddress: string, pairAddress: string): GuildSettings {
+  return updateGuild(guildId, (s) => {
+    s.buyTokenAddress = tokenAddress;
+    s.buyPairAddress = pairAddress;
+  });
+}
+
+export function setMinBuyCro(guildId: string, amount: number): GuildSettings {
+  return updateGuild(guildId, (s) => { s.minBuyCro = amount; });
+}
+
+export function setBuyImage(guildId: string, url: string | null): GuildSettings {
+  return updateGuild(guildId, (s) => { s.buyImageUrl = url; });
+}
+
+export function setBuyEmoji(guildId: string, emoji: string): GuildSettings {
+  return updateGuild(guildId, (s) => { s.buyEmoji = emoji; });
+}
+
+export function setBuyRates(guildId: string, rates: [number, number, number, number]): GuildSettings {
+  return updateGuild(guildId, (s) => { s.buyRates = rates; });
+}
+
+export function clearBuyConfig(guildId: string): GuildSettings {
+  return updateGuild(guildId, (s) => {
+    s.channelBuysId = null;
+    s.buyTokenAddress = null;
+    s.buyPairAddress = null;
+    s.minBuyCro = 0;
+    s.buyImageUrl = null;
+    s.buyEmoji = "🟢";
+    s.buyRates = [10, 50, 200, 500];
+  });
 }

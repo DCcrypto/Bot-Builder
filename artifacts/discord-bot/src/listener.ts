@@ -12,6 +12,14 @@ export interface GuildState {
   relistCooldownMs: number;
   seenListingIds: Set<string>;
   recentNfts: Map<string, number>;
+  buysChannel: TextChannel | null;
+  buyTokenAddress: string | null;
+  buyPairAddress: string | null;
+  minBuyCro: number;
+  buyImageUrl: string | null;
+  buyEmoji: string;
+  buyRates: [number, number, number, number];
+  seenBuyTxHashes: Set<string>;
 }
 
 export interface ApiListing {

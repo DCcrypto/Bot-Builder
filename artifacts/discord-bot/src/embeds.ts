@@ -4,6 +4,7 @@ import { ethers } from "ethers";
 const LISTING_COLOR = 0x9b59b6;
 const SALE_COLOR = 0x2ecc71;
 const MINT_COLOR = 0xffd700;
+const BUY_COLOR = 0x00e676;
 
 function ipfsToHttp(uri: string): string {
   if (uri.startsWith("ipfs://")) {
@@ -75,7 +76,6 @@ export function buildListingEmbed(input: ListingEmbedInput): EmbedBuilder {
         value: `\`${shortenAddr(seller)}\``,
         inline: true,
       }
-      // { name: "View Listing", value: `[Open on MANE NFT](${listingUrl})`, inline: false },
     )
     .setTimestamp();
 
@@ -194,13 +194,54 @@ export function buildSaleEmbed(input: SaleEmbedInput): EmbedBuilder {
         value: `\`${shortenAddr(seller)}\``,
         inline: true,
       }
-      // { name: "View Item", value: `[Open on MANE NFT](${listingUrl})`, inline: false },
     )
     .setFooter({ text: `Tx: ${shortenAddr(txHash)} · Cronos` })
     .setTimestamp();
 
   if (description) embed.setDescription(description);
   if (nftImage) embed.setImage(nftImage);
+
+  return embed;
+}
+
+export interface BuyEmbedInput {
+  tokenSymbol: string;
+  amountBought: string;
+  spentAmount: string;
+  spentSymbol: string;
+  buyer: string;
+  txHash: string;
+  bubbles: string;
+  imageUrl: string | null;
+}
+
+export function buildBuyEmbed(input: BuyEmbedInput): EmbedBuilder {
+  const {
+    tokenSymbol,
+    amountBought,
+    spentAmount,
+    spentSymbol,
+    buyer,
+    txHash,
+    bubbles,
+    imageUrl,
+  } = input;
+
+  const txUrl = `https://explorer.cronos.org/tx/${txHash}`;
+
+  const embed = new EmbedBuilder()
+    .setColor(BUY_COLOR)
+    .setTitle(`${bubbles} New ${tokenSymbol} Buy!`)
+    .setURL(txUrl)
+    .addFields(
+      { name: `${tokenSymbol} Bought`, value: amountBought, inline: true },
+      { name: "Spent", value: `${spentAmount} ${spentSymbol}`, inline: true },
+      { name: "Buyer", value: `\`${shortenAddr(buyer)}\``, inline: true }
+    )
+    .setFooter({ text: `Tx: ${shortenAddr(txHash)} · Cronos` })
+    .setTimestamp();
+
+  if (imageUrl) embed.setImage(imageUrl);
 
   return embed;
 }
