@@ -205,6 +205,7 @@ export function buildSaleEmbed(input: SaleEmbedInput): EmbedBuilder {
 }
 
 export interface BuyEmbedInput {
+  tokenName: string;
   tokenSymbol: string;
   amountBought: string;
   spentAmount: string;
@@ -217,6 +218,7 @@ export interface BuyEmbedInput {
 
 export function buildBuyEmbed(input: BuyEmbedInput): EmbedBuilder {
   const {
+    tokenName,
     tokenSymbol,
     amountBought,
     spentAmount,
@@ -228,10 +230,11 @@ export function buildBuyEmbed(input: BuyEmbedInput): EmbedBuilder {
   } = input;
 
   const txUrl = `https://explorer.cronos.org/tx/${txHash}`;
+  const displayName = tokenName && tokenName !== tokenSymbol ? `${tokenName} (${tokenSymbol})` : tokenSymbol;
 
   const embed = new EmbedBuilder()
     .setColor(BUY_COLOR)
-    .setTitle(`${bubbles} New ${tokenSymbol} Buy!`)
+    .setTitle(`${bubbles} New ${displayName} Buy!`)
     .setURL(txUrl)
     .addFields(
       { name: `${tokenSymbol} Bought`, value: amountBought, inline: true },

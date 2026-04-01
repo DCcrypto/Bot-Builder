@@ -144,11 +144,11 @@ async function pollPair(
 ): Promise<void> {
   try {
     const currentBlock = await provider.getBlockNumber();
-    const pairKey = pairAddress.toLowerCase();
+    const pairKey = `${pairAddress.toLowerCase()}:${tokenAddress.toLowerCase()}`;
 
     let lastBlock = lastBlocks.get(pairKey) ?? null;
     if (lastBlock === null) {
-      const saved = loadLastBlock(pairAddress);
+      const saved = loadLastBlock(pairKey);
       const minBlock = currentBlock - MAX_CATCHUP_BLOCKS;
       lastBlock = saved !== null ? Math.max(saved, minBlock) : currentBlock - STARTUP_BLOCK_LOOKBACK;
       if (saved !== null && saved < minBlock) {
@@ -214,6 +214,7 @@ async function pollPair(
         );
 
         const embed = buildBuyEmbed({
+          tokenName: pairInfo.trackedToken.name,
           tokenSymbol: pairInfo.trackedToken.symbol,
           amountBought: formatAmount(trackedAmountOut, pairInfo.trackedToken.decimals),
           spentAmount: formatAmount(otherAmountIn, pairInfo.otherToken.decimals),
@@ -240,7 +241,7 @@ async function pollPair(
     }
 
     lastBlocks.set(pairKey, toBlock);
-    saveLastBlock(pairAddress, toBlock);
+    saveLastBlock(pairKey, toBlock);
   } catch (err) {
     console.error(`[buys] Poll error for ${pairAddress}:`, err);
   }
@@ -254,21 +255,25 @@ export async function startTokenBuyListener(guildStates: Map<string, GuildState>
   const pairInfoCache = new Map<string, PairInfo>();
 
   async function poll(): Promise<void> {
-    const pairToGuilds = new Map<string, { tokenAddress: string; guilds: GuildState[] }>();
+    const pairToGuilds = new Map<string, { pairAddress: string; tokenAddress: string; guilds: GuildState[] }>();
 
     for (const state of guildStates.values()) {
       if (!state.buysChannel || !state.buyPairAddress || !state.buyTokenAddress) continue;
-      const key = state.buyPairAddress.toLowerCase();
+      const key = `${state.buyPairAddress.toLowerCase()}:${state.buyTokenAddress.toLowerCase()}`;
       const existing = pairToGuilds.get(key);
       if (existing) {
         existing.guilds.push(state);
       } else {
-        pairToGuilds.set(key, { tokenAddress: state.buyTokenAddress, guilds: [state] });
+        pairToGuilds.set(key, {
+          pairAddress: state.buyPairAddress,
+          tokenAddress: state.buyTokenAddress,
+          guilds: [state],
+        });
       }
     }
 
-    for (const [pairKey, { tokenAddress, guilds }] of pairToGuilds) {
-      await pollPair(pairKey, tokenAddress, guilds, provider, lastBlocks, pairInfoCache);
+    for (const [, { pairAddress, tokenAddress, guilds }] of pairToGuilds) {
+      await pollPair(pairAddress, tokenAddress, guilds, provider, lastBlocks, pairInfoCache);
     }
   }
 

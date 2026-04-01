@@ -790,7 +790,7 @@ async function handleSetBuyImage(
   }
 
   if (!url.startsWith("https://") && !url.startsWith("http://")) {
-    await interaction.editReply("❌ URL must start with `https://`. Pass `clear` to remove the current image.");
+    await interaction.editReply("❌ URL must start with `https://` or `http://`. Pass `clear` to remove the current image.");
     return;
   }
 
