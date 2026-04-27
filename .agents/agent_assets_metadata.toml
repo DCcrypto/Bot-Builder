@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "snDA65ZeORwSLHUTtPQdC"
+uri = "file://railway-deploy.tar.gz"
+type = "unspecified"
+title = "Railway deployment files (Dockerfile, .dockerignore, railway.toml)"
