@@ -33,6 +33,7 @@ import {
 import type { GuildState } from "./listener.js";
 import { loadSeenIds } from "./seenListings.js";
 import { loadSeenBuyTxHashes } from "./seenBuys.js";
+import { priceCommand, handlePriceInteraction } from "./priceCommands.js";
 
 export const settingsCommand = new SlashCommandBuilder()
   .setName("settings")
@@ -248,7 +249,7 @@ export async function registerCommands(client: Client): Promise<void> {
   if (!appId) throw new Error("Client application ID not available");
 
   const rest = new REST().setToken(token);
-  const body = [settingsCommand.toJSON()];
+  const body = [settingsCommand.toJSON(), priceCommand.toJSON()];
 
   try {
     await rest.put(Routes.applicationCommands(appId), { body });
@@ -288,11 +289,20 @@ function ensureGuildState(
   return state;
 }
 
+export { priceCommand };
+
 export async function handleInteraction(
   interaction: ChatInputCommandInteraction,
   guildStates: Map<string, GuildState>
 ): Promise<void> {
-  if (!interaction.isChatInputCommand() || interaction.commandName !== "settings") return;
+  if (!interaction.isChatInputCommand()) return;
+
+  if (interaction.commandName === "price") {
+    await handlePriceInteraction(interaction, guildStates);
+    return;
+  }
+
+  if (interaction.commandName !== "settings") return;
 
   const guildId = interaction.guildId;
   if (!guildId) {

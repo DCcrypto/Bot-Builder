@@ -1,5 +1,11 @@
-import { EmbedBuilder } from "discord.js";
+import {
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+} from "discord.js";
 import { ethers } from "ethers";
+import type { PriceData } from "./priceChecker.js";
 
 const LISTING_COLOR = 0x9b59b6;
 const SALE_COLOR = 0x2ecc71;
@@ -139,6 +145,100 @@ export function buildMintEmbed(input: MintEmbedInput): EmbedBuilder {
   return embed;
 }
 
+const PRICE_COLOR_GREEN = 0x2ecc71;
+const PRICE_COLOR_RED = 0xe74c3c;
+const PRICE_COLOR_GREY = 0x95a5a6;
+
+function fmtUsd(val: number | null): string {
+  if (val === null || isNaN(val)) return "N/A";
+  if (val === 0) return "$0.00";
+  if (Math.abs(val) < 0.000001) return `$${val.toExponential(4)}`;
+  if (Math.abs(val) < 0.0001) return `$${val.toFixed(8)}`;
+  if (Math.abs(val) < 0.01) return `$${val.toFixed(6)}`;
+  if (Math.abs(val) < 1) return `$${val.toFixed(4)}`;
+  return `$${val.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+}
+
+function fmtLarge(val: number | null): string {
+  if (val === null || isNaN(val)) return "N/A";
+  if (val >= 1_000_000_000) return `$${(val / 1_000_000_000).toFixed(2)}B`;
+  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(2)}M`;
+  if (val >= 1_000) return `$${(val / 1_000).toFixed(2)}K`;
+  return `$${val.toFixed(2)}`;
+}
+
+function fmtChange(val: number | null): string {
+  if (val === null || isNaN(val)) return "—";
+  const sign = val >= 0 ? "▲" : "▼";
+  return `${sign} ${Math.abs(val).toFixed(2)}%`;
+}
+
+function fmtNative(val: number | null, symbol: string): string {
+  if (val === null || isNaN(val)) return "N/A";
+  if (val < 0.000001) return `${val.toExponential(4)} ${symbol}`;
+  if (val < 0.01) return `${val.toFixed(8)} ${symbol}`;
+  if (val < 1) return `${val.toFixed(6)} ${symbol}`;
+  return `${val.toLocaleString("en-US", { maximumFractionDigits: 4 })} ${symbol}`;
+}
+
+export interface PriceEmbedResult {
+  embed: EmbedBuilder;
+  components: ActionRowBuilder<ButtonBuilder>[];
+}
+
+export function buildPriceEmbed(data: PriceData): PriceEmbedResult {
+  const change24h = data.change24h;
+  const color =
+    change24h === null ? PRICE_COLOR_GREY
+    : change24h > 0 ? PRICE_COLOR_GREEN
+    : change24h < 0 ? PRICE_COLOR_RED
+    : PRICE_COLOR_GREY;
+
+  const displayName =
+    data.name && data.name !== data.symbol
+      ? `${data.name} (${data.symbol})`
+      : data.symbol;
+
+  const embed = new EmbedBuilder()
+    .setColor(color)
+    .setTitle(`📊 ${displayName} — Price`)
+    .addFields(
+      { name: "💵 Price (USD)", value: fmtUsd(data.priceUsd), inline: true },
+      { name: `🔗 Price (${data.nativeSymbol})`, value: fmtNative(data.priceNative, data.nativeSymbol), inline: true },
+      { name: "\u200b", value: "\u200b", inline: true },
+      { name: "5m", value: fmtChange(data.change5m), inline: true },
+      { name: "1h", value: fmtChange(data.change1h), inline: true },
+      { name: "6h", value: fmtChange(data.change6h), inline: true },
+      { name: "24h", value: fmtChange(data.change24h), inline: true },
+      { name: "📦 24h Volume", value: fmtLarge(data.volume24h), inline: true },
+      { name: "💧 Liquidity", value: fmtLarge(data.liquidityUsd), inline: true },
+      { name: "📈 Market Cap", value: fmtLarge(data.marketCap), inline: true },
+      { name: "🏷️ FDV", value: fmtLarge(data.fdv), inline: true },
+      { name: "\u200b", value: "\u200b", inline: true },
+    )
+    .setImage(data.chartImageUrl)
+    .setFooter({ text: `Cronos · Pair: ${data.pairAddress.slice(0, 10)}...` })
+    .setTimestamp();
+
+  if (data.logoUrl) embed.setThumbnail(data.logoUrl);
+
+  const cronosExplorerUrl = `https://explorer.cronos.org/address/${data.tokenAddress}`;
+
+  const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+    new ButtonBuilder()
+      .setLabel("View on DexScreener")
+      .setURL(data.dexscreenerUrl)
+      .setStyle(ButtonStyle.Link)
+      .setEmoji("📈"),
+    new ButtonBuilder()
+      .setLabel("Cronos Explorer")
+      .setURL(cronosExplorerUrl)
+      .setStyle(ButtonStyle.Link)
+      .setEmoji("🔍")
+  );
+
+  return { embed, components: [row] };
+}
 export interface SaleEmbedInput {
   nftName: string | null;
   nftImage: string | null;
