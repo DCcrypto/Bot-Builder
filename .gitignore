@@ -47,3 +47,6 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Discord bot runtime data (mutable state, not for version control)
+artifacts/discord-bot/data/
