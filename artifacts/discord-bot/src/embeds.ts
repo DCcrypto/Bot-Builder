@@ -174,7 +174,7 @@ function fmtChange(val: number | null): string {
 }
 
 function fmtNative(val: number | null, symbol: string): string {
-  if (val === null || isNaN(val)) return "N/A";
+  if (val === null || isNaN(val) || val <= 0) return "N/A";
   if (val < 0.000001) return `${val.toExponential(4)} ${symbol}`;
   if (val < 0.01) return `${val.toFixed(8)} ${symbol}`;
   if (val < 1) return `${val.toFixed(6)} ${symbol}`;
@@ -204,7 +204,7 @@ export function buildPriceEmbed(data: PriceData): PriceEmbedResult {
     .setTitle(`📊 ${displayName} — Price`)
     .addFields(
       { name: "💵 Price (USD)", value: fmtUsd(data.priceUsd), inline: true },
-      { name: `🔗 Price (${data.nativeSymbol})`, value: fmtNative(data.priceNative, data.nativeSymbol), inline: true },
+      { name: "🔗 Price (CRO)", value: fmtNative(data.priceCro, "CRO"), inline: true },
       { name: "\u200b", value: "\u200b", inline: true },
       { name: "5m", value: fmtChange(data.change5m), inline: true },
       { name: "1h", value: fmtChange(data.change1h), inline: true },
@@ -216,10 +216,10 @@ export function buildPriceEmbed(data: PriceData): PriceEmbedResult {
       { name: "🏷️ FDV", value: fmtLarge(data.fdv), inline: true },
       { name: "\u200b", value: "\u200b", inline: true },
     )
-    .setImage(data.chartImageUrl)
     .setFooter({ text: `Cronos · Pair: ${data.pairAddress.slice(0, 10)}...` })
     .setTimestamp();
 
+  if (data.chartImageValid) embed.setImage(data.chartImageUrl);
   if (data.logoUrl) embed.setThumbnail(data.logoUrl);
 
   const cronosExplorerUrl = `https://explorer.cronos.org/address/${data.tokenAddress}`;

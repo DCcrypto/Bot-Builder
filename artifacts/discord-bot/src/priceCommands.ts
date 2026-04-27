@@ -56,7 +56,7 @@ export async function handlePriceInteraction(
   let priceData = null;
 
   if (tokenArg) {
-    priceData = await fetchTokenPrice(tokenArg);
+    priceData = await fetchTokenPrice(tokenArg, guildId);
   } else {
     const settings = getGuildSettings(guildId);
     if (settings.buyPairAddress) {
@@ -70,9 +70,17 @@ export async function handlePriceInteraction(
   }
 
   if (!priceData) {
-    const hint = tokenArg
-      ? `No price data found for \`${tokenArg}\` on Cronos. Make sure it's a valid token or pair contract address on Cronos.`
-      : `No buy token is configured for this server. Run \`/settings buys token\` to set one, or pass a token address directly to \`/price token:<address>\`.`;
+    let hint: string;
+    if (tokenArg) {
+      const isAddress = tokenArg.toLowerCase().startsWith("0x");
+      if (isAddress) {
+        hint = `No price data found for \`${tokenArg}\` on Cronos. Make sure it's a valid token or pair contract address on Cronos listed on DexScreener.`;
+      } else {
+        hint = `Could not resolve \`${tokenArg}\` to a token. If this is a symbol (e.g. MANE), make sure it matches your server's configured buy token symbol, or pass the full \`0x...\` contract address instead.`;
+      }
+    } else {
+      hint = `No buy token is configured for this server. Run \`/settings buys token\` to set one, or pass a token address directly: \`/price token:0x...\`.`;
+    }
     await interaction.editReply(`❌ ${hint}`);
     return;
   }
