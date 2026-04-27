@@ -8,14 +8,14 @@
     "channelBuysId": "1238877738769846395",
     "buyTokenAddress": "0x6135c840c511a112457d647Aad82a26412a4fa7D",
     "buyPairAddress": "0xD9A74F078418e66BF787036c2a722B3c38704281",
-    "minBuyCro": 0,
-    "buyImageUrl": "https://image2url.com/r2/default/images/1775171636094-f6709fc1-f445-4036-a585-88b190a09c24.png",
-    "buyEmoji": "<:emoji_2:1291507326724866170>",
+    "minBuyCro": 1,
+    "buyImageUrl": "https://www.image2url.com/r2/default/images/1777258197530-51f91683-75af-4155-85e4-0780f0666c7f.jpg",
+    "buyEmoji": "🦁",
     "buyRates": [
-      10,
-      50,
-      200,
-      500
+      1000,
+      5000,
+      15000,
+      50000
     ]
   },
   "1399401165770457199": {
