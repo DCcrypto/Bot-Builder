@@ -1,0 +1,43 @@
+# Dependencies (installed fresh in the image)
+node_modules
+**/node_modules
+
+# Git history
+.git
+.gitignore
+
+# Replit-specific files
+.replit
+replit.nix
+replit.md
+.local
+attached_assets
+cloud-init.yaml
+
+# Other artifacts (only discord-bot is needed)
+# Source is excluded; package.json is copied explicitly in the Dockerfile
+artifacts/api-server/src
+artifacts/api-server/dist
+artifacts/api-server/data
+artifacts/mockup-sandbox/src
+artifacts/mockup-sandbox/public
+
+# Library source (discord-bot has no workspace deps on lib/*)
+lib/api-client-react/src
+lib/api-spec/src
+lib/api-zod/src
+lib/db/src
+lib/db/drizzle
+scripts/src
+
+# Build output
+dist
+*.js.map
+
+# Runtime data (created fresh on start)
+artifacts/discord-bot/data
+
+# Misc
+*.log
+.DS_Store
+Thumbs.db
