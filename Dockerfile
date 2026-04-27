@@ -20,8 +20,9 @@ COPY lib/db/package.json                ./lib/db/
 COPY scripts/package.json               ./scripts/
 
 # Install only the discord-bot package and its external dependencies.
-# The discord-bot has no internal workspace dependencies, so this is fast.
-RUN pnpm install --frozen-lockfile --filter @workspace/discord-bot...
+# Using --no-frozen-lockfile so the build tolerates lockfile/override drift
+# between environments without failing.
+RUN pnpm install --no-frozen-lockfile --filter @workspace/discord-bot...
 
 # ── Source files ───────────────────────────────────────────────────────────────
 COPY artifacts/discord-bot/src ./artifacts/discord-bot/src
