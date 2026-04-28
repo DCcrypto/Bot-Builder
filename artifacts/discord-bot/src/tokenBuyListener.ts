@@ -16,7 +16,7 @@ const CRONOS_RPC = "https://evm.cronos.org";
 const POLL_INTERVAL_MS = 15_000;
 const MAX_BLOCK_RANGE = 999;
 const STARTUP_BLOCK_LOOKBACK = 50;
-const MAX_CATCHUP_BLOCKS = 5_000;
+const MAX_CATCHUP_BLOCKS = 50_000;
 const PRICE_CACHE_TTL_MS = 60_000;
 
 const priceCache = new Map<string, { data: PriceData; fetchedAt: number }>();
