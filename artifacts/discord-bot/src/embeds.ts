@@ -314,6 +314,9 @@ export interface BuyEmbedInput {
   txHash: string;
   bubbles: string;
   imageUrl: string | null;
+  change24h?: number | null;
+  chartImageUrl?: string | null;
+  chartImageValid?: boolean;
 }
 
 export function buildBuyEmbed(input: BuyEmbedInput): EmbedBuilder {
@@ -327,6 +330,9 @@ export function buildBuyEmbed(input: BuyEmbedInput): EmbedBuilder {
     txHash,
     bubbles,
     imageUrl,
+    change24h,
+    chartImageUrl,
+    chartImageValid,
   } = input;
 
   const txUrl = `https://explorer.cronos.org/tx/${txHash}`;
@@ -344,7 +350,16 @@ export function buildBuyEmbed(input: BuyEmbedInput): EmbedBuilder {
     .setFooter({ text: `Tx: ${shortenAddr(txHash)} · Cronos` })
     .setTimestamp();
 
-  if (imageUrl) embed.setImage(imageUrl);
+  if (change24h !== undefined && change24h !== null) {
+    embed.addFields({ name: "24h", value: fmtChange(change24h), inline: true });
+  }
+
+  if (chartImageValid && chartImageUrl) {
+    embed.setImage(chartImageUrl);
+    if (imageUrl) embed.setThumbnail(imageUrl);
+  } else if (imageUrl) {
+    embed.setImage(imageUrl);
+  }
 
   return embed;
 }

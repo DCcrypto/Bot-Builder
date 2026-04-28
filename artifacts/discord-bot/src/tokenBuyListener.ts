@@ -1,6 +1,8 @@
 import { ethers } from "ethers";
 import { buildBuyEmbed } from "./embeds.js";
 import type { GuildState } from "./listener.js";
+import { fetchPriceByPair } from "./priceChecker.js";
+import type { PriceData } from "./priceChecker.js";
 import { markBuyTxSeen } from "./seenBuys.js";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
 import { join, dirname } from "path";
@@ -15,6 +17,24 @@ const POLL_INTERVAL_MS = 15_000;
 const MAX_BLOCK_RANGE = 999;
 const STARTUP_BLOCK_LOOKBACK = 50;
 const MAX_CATCHUP_BLOCKS = 5_000;
+const PRICE_CACHE_TTL_MS = 60_000;
+
+const priceCache = new Map<string, { data: PriceData; fetchedAt: number }>();
+
+async function getCachedPrice(pairAddress: string): Promise<PriceData | null> {
+  const key = pairAddress.toLowerCase();
+  const cached = priceCache.get(key);
+  if (cached && Date.now() - cached.fetchedAt < PRICE_CACHE_TTL_MS) {
+    return cached.data;
+  }
+  try {
+    const data = await fetchPriceByPair(pairAddress);
+    if (data) priceCache.set(key, { data, fetchedAt: Date.now() });
+    return data;
+  } catch {
+    return null;
+  }
+}
 
 const PAIR_ABI = [
   "event Swap(address indexed sender, uint256 amount0In, uint256 amount1In, uint256 amount0Out, uint256 amount1Out, address indexed to)",
@@ -213,6 +233,8 @@ async function pollPair(
           state.buyEmoji
         );
 
+        const priceData = await getCachedPrice(pairAddress);
+
         const embed = buildBuyEmbed({
           tokenName: pairInfo.trackedToken.name,
           tokenSymbol: pairInfo.trackedToken.symbol,
@@ -223,6 +245,9 @@ async function pollPair(
           txHash,
           bubbles,
           imageUrl: state.buyImageUrl,
+          change24h: priceData?.change24h ?? null,
+          chartImageUrl: priceData?.chartImageUrl ?? null,
+          chartImageValid: priceData?.chartImageValid ?? false,
         });
 
         try {
