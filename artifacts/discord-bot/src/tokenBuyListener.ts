@@ -154,6 +154,89 @@ async function fetchPairInfo(
   return { token0: token0Lower, token1: token1Lower, trackedIsToken0, trackedToken, otherToken };
 }
 
+interface PendingBuy {
+  txHash: string;
+  trackedAmountOut: bigint;
+  otherAmountIn: bigint;
+  to: string;
+}
+
+const pendingRetries = new Map<string, PendingBuy[]>();
+
+async function postBuyForGuilds(
+  pending: PendingBuy,
+  guilds: GuildState[],
+  pairInfo: PairInfo,
+  pairAddress: string
+): Promise<{ allPosted: boolean }> {
+  const { txHash, trackedAmountOut, otherAmountIn, to } = pending;
+  const spentFloat = parseFloat(ethers.formatUnits(otherAmountIn, pairInfo.otherToken.decimals));
+
+  const priceData = await getCachedPrice(pairAddress);
+
+  let amountBoughtUsd: number | null = null;
+  if (priceData?.priceUsd != null && priceData.priceUsd > 0) {
+    const rawTokens = parseFloat(ethers.formatUnits(trackedAmountOut, pairInfo.trackedToken.decimals));
+    amountBoughtUsd = rawTokens * priceData.priceUsd;
+  }
+
+  let allPosted = true;
+
+  for (const state of guilds) {
+    if (!state.buysChannel) continue;
+    if (state.seenBuyTxHashes.has(txHash)) continue;
+
+    if (state.minBuyCro > 0 && spentFloat < state.minBuyCro) {
+      console.log(
+        `[buys] [${state.guildId}] Filtered (below min): ${formatAmount(trackedAmountOut, pairInfo.trackedToken.decimals)} ${pairInfo.trackedToken.symbol} spent=${spentFloat.toFixed(4)} min=${state.minBuyCro} tx=${txHash.slice(0, 10)}...`
+      );
+      state.seenBuyTxHashes.add(txHash);
+      markBuyTxSeen(state.guildId, [txHash]);
+      continue;
+    }
+
+    const bubbles = computeBubbles(
+      otherAmountIn,
+      pairInfo.otherToken.decimals,
+      state.buyRates,
+      state.buyEmoji
+    );
+
+    const embed = buildBuyEmbed({
+      tokenName: pairInfo.trackedToken.name,
+      tokenSymbol: pairInfo.trackedToken.symbol,
+      amountBought: formatAmount(trackedAmountOut, pairInfo.trackedToken.decimals),
+      spentAmount: formatAmount(otherAmountIn, pairInfo.otherToken.decimals),
+      spentSymbol: pairInfo.otherToken.symbol,
+      buyer: to,
+      txHash,
+      bubbles,
+      imageUrl: state.buyImageUrl,
+      amountBoughtUsd,
+      change24h: priceData?.change24h ?? null,
+      chartImageUrl: priceData?.chartImageUrl ?? null,
+      chartImageValid: priceData?.chartImageValid ?? false,
+    });
+
+    try {
+      await state.buysChannel.send({ embeds: [embed] });
+      console.log(
+        `[buys] [${state.guildId}] Posted buy: ${formatAmount(trackedAmountOut, pairInfo.trackedToken.decimals)} ${pairInfo.trackedToken.symbol} tx=${txHash.slice(0, 10)}...`
+      );
+      state.seenBuyTxHashes.add(txHash);
+      markBuyTxSeen(state.guildId, [txHash]);
+    } catch (err) {
+      console.error(
+        `[buys] [${state.guildId}] SEND FAILED — will retry next poll — tx=${txHash.slice(0, 10)}... error:`,
+        err
+      );
+      allPosted = false;
+    }
+  }
+
+  return { allPosted };
+}
+
 async function pollPair(
   pairAddress: string,
   tokenAddress: string,
@@ -189,6 +272,17 @@ async function pollPair(
       );
     }
 
+    const retries = pendingRetries.get(pairKey) ?? [];
+    if (retries.length > 0) {
+      console.log(`[buys] Retrying ${retries.length} failed buy(s) for ${pairAddress}`);
+      const stillFailing: PendingBuy[] = [];
+      for (const pending of retries) {
+        const { allPosted } = await postBuyForGuilds(pending, guilds, pairInfo, pairAddress);
+        if (!allPosted) stillFailing.push(pending);
+      }
+      pendingRetries.set(pairKey, stillFailing);
+    }
+
     const pair = new ethers.Contract(pairAddress, PAIR_ABI, provider);
     const swapFilter = pair.filters["Swap"]();
 
@@ -196,6 +290,10 @@ async function pollPair(
     const toBlock = Math.min(currentBlock, fromBlock + MAX_BLOCK_RANGE);
 
     const events = await pair.queryFilter(swapFilter, fromBlock, toBlock);
+
+    if (events.length > 0) {
+      console.log(`[buys] ${pairAddress}: blocks ${fromBlock}-${toBlock} — ${events.length} swap event(s)`);
+    }
 
     for (const event of events) {
       if (!("args" in event)) continue;
@@ -209,66 +307,20 @@ async function pollPair(
       const txHash = log.transactionHash;
 
       const isBuy = pairInfo.trackedIsToken0 ? amount0Out > 0n : amount1Out > 0n;
-      if (!isBuy) continue;
+      if (!isBuy) {
+        console.log(`[buys] Swap detected (sell/other) — skipping tx=${txHash.slice(0, 10)}...`);
+        continue;
+      }
 
       const trackedAmountOut = pairInfo.trackedIsToken0 ? amount0Out : amount1Out;
       const otherAmountIn = pairInfo.trackedIsToken0 ? amount1In : amount0In;
 
-      const spentFloat = parseFloat(ethers.formatUnits(otherAmountIn, pairInfo.otherToken.decimals));
-
-      for (const state of guilds) {
-        if (!state.buysChannel) continue;
-        if (state.seenBuyTxHashes.has(txHash)) continue;
-
-        if (state.minBuyCro > 0 && spentFloat < state.minBuyCro) {
-          state.seenBuyTxHashes.add(txHash);
-          markBuyTxSeen(state.guildId, [txHash]);
-          continue;
-        }
-
-        const bubbles = computeBubbles(
-          otherAmountIn,
-          pairInfo.otherToken.decimals,
-          state.buyRates,
-          state.buyEmoji
-        );
-
-        const priceData = await getCachedPrice(pairAddress);
-
-        let amountBoughtUsd: number | null = null;
-        if (priceData?.priceUsd != null && priceData.priceUsd > 0) {
-          const rawTokens = parseFloat(ethers.formatUnits(trackedAmountOut, pairInfo.trackedToken.decimals));
-          amountBoughtUsd = rawTokens * priceData.priceUsd;
-        }
-
-        const embed = buildBuyEmbed({
-          tokenName: pairInfo.trackedToken.name,
-          tokenSymbol: pairInfo.trackedToken.symbol,
-          amountBought: formatAmount(trackedAmountOut, pairInfo.trackedToken.decimals),
-          spentAmount: formatAmount(otherAmountIn, pairInfo.otherToken.decimals),
-          spentSymbol: pairInfo.otherToken.symbol,
-          buyer: to,
-          txHash,
-          bubbles,
-          imageUrl: state.buyImageUrl,
-          amountBoughtUsd,
-          change24h: priceData?.change24h ?? null,
-          chartImageUrl: priceData?.chartImageUrl ?? null,
-          chartImageValid: priceData?.chartImageValid ?? false,
-        });
-
-        try {
-          await state.buysChannel.send({ embeds: [embed] });
-          console.log(
-            `[buys] [${state.guildId}] Posted buy: ${formatAmount(trackedAmountOut, pairInfo.trackedToken.decimals)} ${pairInfo.trackedToken.symbol} tx=${txHash.slice(0, 10)}...`
-          );
-        } catch (err) {
-          console.error(`[buys] [${state.guildId}] Error posting buy tx ${txHash}:`, err);
-          continue;
-        }
-
-        state.seenBuyTxHashes.add(txHash);
-        markBuyTxSeen(state.guildId, [txHash]);
+      const pending: PendingBuy = { txHash, trackedAmountOut, otherAmountIn, to };
+      const { allPosted } = await postBuyForGuilds(pending, guilds, pairInfo, pairAddress);
+      if (!allPosted) {
+        const queue = pendingRetries.get(pairKey) ?? [];
+        queue.push(pending);
+        pendingRetries.set(pairKey, queue);
       }
     }
 
