@@ -1,6 +1,7 @@
 import { getGuildSettings } from "./settings.js";
 
 const DEXSCREENER_API = "https://api.dexscreener.com/latest/dex";
+const GECKOTERM_API = "https://api.geckoterminal.com/api/v2";
 const WCRO_ADDRESS = "0x5C7F8A570d578ED84E63fdFA7b1eE72dEae1AE23";
 
 interface DexPairRaw {
@@ -22,6 +23,14 @@ interface DexPairRaw {
 
 interface DexResponse {
   pairs: DexPairRaw[] | null;
+}
+
+interface GeckoOhlcvResponse {
+  data: {
+    attributes: {
+      ohlcv_list: number[][];
+    };
+  };
 }
 
 export interface PriceData {
@@ -83,18 +92,85 @@ async function fetchCroUsdRate(): Promise<number> {
   }
 }
 
-async function validateChartUrl(url: string): Promise<boolean> {
+async function fetchGeckoterminalOhlcv(
+  pairAddress: string
+): Promise<number[][] | null> {
   try {
-    const res = await fetchWithTimeout(url, "HEAD", 5000);
-    return res.ok;
+    const url = `${GECKOTERM_API}/networks/cro/pools/${pairAddress.toLowerCase()}/ohlcv/hour?limit=24&currency=usd`;
+    const res = await fetchWithTimeout(url, "GET", 8000);
+    if (!res.ok) return null;
+    const data = (await res.json()) as GeckoOhlcvResponse;
+    const list = data.data?.attributes?.ohlcv_list;
+    if (!Array.isArray(list) || list.length === 0) return null;
+    return [...list].reverse();
   } catch {
-    return false;
+    return null;
   }
 }
 
-async function parsePair(pair: DexPairRaw): Promise<PriceData> {
-  const chartImageUrl = `https://dd.dexscreener.com/ds-data/charts/cronos/${pair.pairAddress.toLowerCase()}/1d.png?size=lg&theme=dark`;
+function formatPrice(val: number): string {
+  if (val === 0) return "0";
+  if (val >= 1) return val.toFixed(4);
+  const exp = Math.floor(Math.log10(Math.abs(val)));
+  const decimals = Math.max(2, -exp + 3);
+  return val.toFixed(Math.min(decimals, 10));
+}
 
+function buildQuickChartUrl(
+  candles: number[][],
+  symbol: string,
+  change24h: number | null
+): string {
+  const closes = candles.map((c) => Number(formatPrice(c[4])));
+  const first = closes[0] ?? 0;
+  const last = closes[closes.length - 1] ?? 0;
+  const isUp = change24h !== null ? change24h >= 0 : last >= first;
+
+  const lineColor = isUp ? "rgba(52,211,153,1)" : "rgba(248,113,113,1)";
+  const fillColor = isUp ? "rgba(52,211,153,0.15)" : "rgba(248,113,113,0.15)";
+
+  const labels = candles.map((c) => {
+    const d = new Date(c[0] * 1000);
+    return `${d.getUTCHours().toString().padStart(2, "0")}:00`;
+  });
+
+  const config = {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        {
+          label: symbol,
+          data: closes,
+          fill: true,
+          borderColor: lineColor,
+          backgroundColor: fillColor,
+          borderWidth: 2,
+          pointRadius: 0,
+          tension: 0.3,
+        },
+      ],
+    },
+    options: {
+      scales: {
+        x: {
+          ticks: { color: "rgba(255,255,255,0.35)", maxTicksLimit: 6, font: { size: 11 } },
+          grid: { color: "rgba(255,255,255,0.05)" },
+        },
+        y: {
+          ticks: { color: "rgba(255,255,255,0.6)", font: { size: 11 } },
+          grid: { color: "rgba(255,255,255,0.07)" },
+        },
+      },
+      plugins: { legend: { display: false } },
+    },
+  };
+
+  const encoded = encodeURIComponent(JSON.stringify(config));
+  return `https://quickchart.io/chart?c=${encoded}&backgroundColor=%230d1117&width=800&height=350`;
+}
+
+async function parsePair(pair: DexPairRaw): Promise<PriceData> {
   const priceUsd = pair.priceUsd != null ? parseFloat(pair.priceUsd) : null;
 
   const isNativeCro =
@@ -111,7 +187,12 @@ async function parsePair(pair: DexPairRaw): Promise<PriceData> {
     }
   }
 
-  const chartImageValid = await validateChartUrl(chartImageUrl);
+  const change24h = pair.priceChange?.h24 ?? null;
+  const ohlcv = await fetchGeckoterminalOhlcv(pair.pairAddress);
+  const chartImageValid = ohlcv !== null && ohlcv.length > 0;
+  const chartImageUrl = chartImageValid
+    ? buildQuickChartUrl(ohlcv!, pair.baseToken.symbol, change24h)
+    : "";
 
   return {
     name: pair.baseToken.name,
@@ -122,7 +203,7 @@ async function parsePair(pair: DexPairRaw): Promise<PriceData> {
     change5m: pair.priceChange?.m5 ?? null,
     change1h: pair.priceChange?.h1 ?? null,
     change6h: pair.priceChange?.h6 ?? null,
-    change24h: pair.priceChange?.h24 ?? null,
+    change24h,
     volume24h: pair.volume?.h24 ?? null,
     liquidityUsd: pair.liquidity?.usd ?? null,
     marketCap: pair.marketCap ?? null,
