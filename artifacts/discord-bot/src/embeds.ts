@@ -314,6 +314,7 @@ export interface BuyEmbedInput {
   txHash: string;
   bubbles: string;
   imageUrl: string | null;
+  amountBoughtUsd?: number | null;
   change24h?: number | null;
   chartImageUrl?: string | null;
   chartImageValid?: boolean;
@@ -330,6 +331,7 @@ export function buildBuyEmbed(input: BuyEmbedInput): EmbedBuilder {
     txHash,
     bubbles,
     imageUrl,
+    amountBoughtUsd,
     change24h,
     chartImageUrl,
     chartImageValid,
@@ -349,6 +351,10 @@ export function buildBuyEmbed(input: BuyEmbedInput): EmbedBuilder {
     )
     .setFooter({ text: `Tx: ${shortenAddr(txHash)} · Cronos` })
     .setTimestamp();
+
+  if (amountBoughtUsd != null) {
+    embed.addFields({ name: "Value (USD)", value: fmtUsd(amountBoughtUsd), inline: true });
+  }
 
   if (change24h !== undefined && change24h !== null) {
     embed.addFields({ name: "24h", value: fmtChange(change24h), inline: true });

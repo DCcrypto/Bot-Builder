@@ -235,6 +235,12 @@ async function pollPair(
 
         const priceData = await getCachedPrice(pairAddress);
 
+        let amountBoughtUsd: number | null = null;
+        if (priceData?.priceUsd != null && priceData.priceUsd > 0) {
+          const rawTokens = parseFloat(ethers.formatUnits(trackedAmountOut, pairInfo.trackedToken.decimals));
+          amountBoughtUsd = rawTokens * priceData.priceUsd;
+        }
+
         const embed = buildBuyEmbed({
           tokenName: pairInfo.trackedToken.name,
           tokenSymbol: pairInfo.trackedToken.symbol,
@@ -245,6 +251,7 @@ async function pollPair(
           txHash,
           bubbles,
           imageUrl: state.buyImageUrl,
+          amountBoughtUsd,
           change24h: priceData?.change24h ?? null,
           chartImageUrl: priceData?.chartImageUrl ?? null,
           chartImageValid: priceData?.chartImageValid ?? false,
